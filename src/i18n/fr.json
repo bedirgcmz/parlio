@@ -256,6 +256,7 @@
     "new_email": "Nouvel E-mail",
     "email_sent": "E-mail de confirmation envoyé.",
     "email_update_error": "Impossible de mettre à jour l'e-mail.",
+    "name_update_error": "Impossible de mettre à jour le nom.",
     "change_password": "Changer le Mot de Passe",
     "current_password": "Mot de Passe Actuel",
     "new_password": "Nouveau Mot de Passe",

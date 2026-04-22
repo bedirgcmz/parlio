@@ -256,6 +256,7 @@
     "new_email": "Novo E-mail",
     "email_sent": "E-mail de confirmação enviado.",
     "email_update_error": "Falha ao atualizar e-mail.",
+    "name_update_error": "Falha ao atualizar nome.",
     "change_password": "Alterar Senha",
     "current_password": "Senha Atual",
     "new_password": "Nova Senha",

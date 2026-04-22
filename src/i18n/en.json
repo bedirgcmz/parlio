@@ -256,6 +256,7 @@
     "new_email": "New Email",
     "email_sent": "Confirmation email sent.",
     "email_update_error": "Failed to update email.",
+    "name_update_error": "Failed to update name.",
     "change_password": "Change Password",
     "current_password": "Current Password",
     "new_password": "New Password",

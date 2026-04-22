@@ -19,6 +19,7 @@ import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuthStore } from "@/store/useAuthStore";
+import { isNetworkError, useNetworkStore } from "@/store/useNetworkStore";
 import { useSentenceStore } from "@/store/useSentenceStore";
 import { useProgressStore } from "@/store/useProgressStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -85,11 +86,24 @@ export default function ProfileScreen() {
       setEditingName(false);
       return;
     }
+    if (useNetworkStore.getState().isOnline === false) {
+      Alert.alert(t("common.offline_title"), t("common.offline_body"));
+      return;
+    }
     setNameSaving(true);
     const res = await updateProfile({ display_name: trimmed });
     setNameSaving(false);
     setEditingName(false);
-    if (!res.success) Alert.alert(t("common.error"), res.error);
+    if (!res.success) {
+      if (
+        useNetworkStore.getState().isOnline === false ||
+        (res.error && isNetworkError({ message: res.error }))
+      ) {
+        Alert.alert(t("common.offline_title"), t("common.offline_body"));
+        return;
+      }
+      Alert.alert(t("common.error"), res.error ?? t("profile.name_update_error"));
+    }
   };
 
   const handleAvatarPress = () => setPhotoSheetVisible(true);

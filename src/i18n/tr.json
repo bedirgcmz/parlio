@@ -256,6 +256,7 @@
     "new_email": "Yeni E-posta",
     "email_sent": "Onay e-postası gönderildi.",
     "email_update_error": "E-posta güncellenemedi.",
+    "name_update_error": "İsim güncellenemedi.",
     "change_password": "Şifre Değiştir",
     "current_password": "Mevcut Şifre",
     "new_password": "Yeni Şifre",

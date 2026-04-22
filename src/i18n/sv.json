@@ -256,6 +256,7 @@
     "new_email": "Ny E-post",
     "email_sent": "Bekräftelsemail skickat.",
     "email_update_error": "Kunde inte uppdatera e-post.",
+    "name_update_error": "Kunde inte uppdatera namn.",
     "change_password": "Ändra Lösenord",
     "current_password": "Nuvarande Lösenord",
     "new_password": "Nytt Lösenord",
