@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { Alert, Platform } from "react-native";
 import i18n from "@/i18n";
 import * as WebBrowser from "expo-web-browser";
-import { supabase } from "../lib/supabase";
+import { clearStoredSupabaseSession, supabase } from "../lib/supabase";
+import { clearRememberedStartupUxState } from "@/lib/startupUx";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   logInUser,
@@ -48,6 +49,7 @@ interface AuthState {
   session: any;
   loading: boolean;
   initialized: boolean;
+  startupAuthSource: "restored" | "interactive" | "none";
   profileHydrated: boolean;
   isPremiumVerified: boolean;
   passwordRecoveryActive: boolean;
@@ -93,6 +95,7 @@ let rcListenerRemover: (() => void) | null = null;
 let lastHydratedSessionKey: string | null = null;
 let inFlightHydrationKey: string | null = null;
 let inFlightHydrationPromise: Promise<void> | null = null;
+let authStateVersion = 0;
 let pendingExplicitCleanupReason: "manual_signout" | "delete_account" | null = null;
 let lastCleanupReason: "manual_signout" | "delete_account" | "signed_out" | "store_clear" | null =
   null;
@@ -385,6 +388,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     if (!session?.user) return;
 
     const hydrationKey = `${session.user.id}:${session.refresh_token ?? session.access_token ?? "session"}`;
+    const hydrationVersion = authStateVersion;
     if (lastHydratedSessionKey === hydrationKey) {
       primeAuthenticatedSession(session);
       return;
@@ -420,6 +424,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
         created_at: session.user.created_at,
       };
 
+      if (hydrationVersion !== authStateVersion) {
+        return;
+      }
+
+      if (get().session?.user?.id !== session.user.id) {
+        return;
+      }
+
       set({
         user: hydratedUser,
         session,
@@ -454,6 +466,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
   const clearAuthenticatedState = async (
     reason: "manual_signout" | "delete_account" | "signed_out" | "store_clear"
   ) => {
+    authStateVersion += 1;
+
     if (rcListenerRemover) {
       rcListenerRemover();
       rcListenerRemover = null;
@@ -482,13 +496,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
       //     the user re-logs into the same account), handle this path separately
       //     by skipping clearAllItems() here and letting processQueue() drain on
       //     the next successful sign-in.
-      await useOfflineQueueStore.getState().clearAllItems();
+    await useOfflineQueueStore.getState().clearAllItems();
     }
 
     clearClientStores();
     set({
       user: null,
       session: null,
+      startupAuthSource: "none",
       profileHydrated: true,
       isPremiumVerified: false,
       passwordRecoveryActive: false,
@@ -500,6 +515,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     lastCleanupReason = reason;
     lastCleanupAt = Date.now();
     pendingExplicitCleanupReason = null;
+    await clearRememberedStartupUxState();
     await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
     await clearAITrialCache();
   };
@@ -509,6 +525,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   session: null,
   loading: false,
   initialized: false,
+  startupAuthSource: "none",
   profileHydrated: false,
   isPremiumVerified: false,
   passwordRecoveryActive: false,
@@ -568,6 +585,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           user,
           session: data.session,
           loading: false,
+          startupAuthSource: "interactive",
           profileHydrated: true,
           isPremiumVerified: rcVerified,
         });
@@ -601,7 +619,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return { success: false, error: error.message };
       }
 
-      set({ loading: false });
+      set({ loading: false, startupAuthSource: "interactive" });
       return { success: true };
     } catch (error) {
       set({ loading: false });
@@ -676,6 +694,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           user,
           session: data.session,
           loading: false,
+          startupAuthSource: "interactive",
           profileHydrated: true,
           isPremiumVerified: rcVerified,
         });
@@ -739,6 +758,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
 
       console.log("SIGN IN WITH GOOGLE SUCCESS PATH");
+      set({ startupAuthSource: "interactive" });
       return { success: true };
     } catch (error) {
       console.log("SIGN IN WITH GOOGLE CATCH:", error);
@@ -817,6 +837,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
       // Edge function deleted the user — clean up locally
       pendingExplicitCleanupReason = "delete_account";
+      await supabase.auth.signOut({ scope: "local" }).catch((error) => {
+        console.error("[auth] delete_account local signout failed:", error);
+      });
+      await clearStoredSupabaseSession();
       console.log("[auth] delete_account_cleanup");
       await clearAuthenticatedState("delete_account");
       await AsyncStorage.multiRemove(["user_settings", "user_settings:guest"]);
@@ -1140,7 +1164,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         await hydrateStoresFromCache(currentSession.user.id).catch((e) => {
           console.error("[auth] hydrateStoresFromCache failed:", e);
         });
-        set({ initialized: true, profileHydrated: false });
+        set({ initialized: true, startupAuthSource: "restored", profileHydrated: false });
         scheduleHydration(currentSession, "initialize");
         return;
       }
@@ -1175,7 +1199,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               await hydrateStoresFromCache(restoredData.session.user.id).catch((e) => {
                 console.error("[auth] hydrateStoresFromCache (legacy) failed:", e);
               });
-              set({ initialized: true, profileHydrated: false });
+              set({ initialized: true, startupAuthSource: "restored", profileHydrated: false });
               scheduleHydration(restoredData.session, "legacy_restore");
               return;
             }
@@ -1187,10 +1211,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
         }
       }
 
-      set({ initialized: true, profileHydrated: true });
+      set({ initialized: true, startupAuthSource: "none", profileHydrated: true });
     } catch (error) {
       if (__DEV__) console.error("Auth initialization error:", error);
-      set({ initialized: true, profileHydrated: true });
+      set({ initialized: true, startupAuthSource: "none", profileHydrated: true });
     }
   },
 
@@ -1200,6 +1224,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       authSubscription = null;
     }
     if (rcListenerRemover) { rcListenerRemover(); rcListenerRemover = null; }
+    authStateVersion += 1;
     pendingExplicitCleanupReason = null;
     lastCleanupReason = "store_clear";
     lastCleanupAt = Date.now();
@@ -1208,6 +1233,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       session: null,
       loading: false,
       initialized: false,
+      startupAuthSource: "none",
       profileHydrated: false,
       isPremiumVerified: false,
       passwordRecoveryActive: false,

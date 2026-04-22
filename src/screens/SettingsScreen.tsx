@@ -9,6 +9,8 @@ import {
   Alert,
   Linking,
   Platform,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 
 const PRIVACY_POLICY_URL = "https://parlio-privacy-terms-page.vercel.app/privacy";
@@ -80,6 +82,14 @@ export default function SettingsScreen() {
     setReminderTime,
   } = useSettingsStore();
   const { user, signOut, deleteAccount, updateProfile } = useAuthStore();
+  const [deletingAccount, setDeletingAccount] = React.useState(false);
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleClose = () => {
     if (navigation.canGoBack()) {
@@ -171,7 +181,11 @@ export default function SettingsScreen() {
           text: t("common.delete"),
           style: "destructive",
           onPress: async () => {
+            setDeletingAccount(true);
             const result = await deleteAccount();
+            if (isMountedRef.current) {
+              setDeletingAccount(false);
+            }
             if (!result.success) {
               Alert.alert(t("common.error"), result.error ?? t("settings.delete_account_error"));
             }
@@ -456,6 +470,13 @@ export default function SettingsScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <Modal visible={deletingAccount} transparent animationType="fade">
+        <View style={overlayStyles.overlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={overlayStyles.overlayText}>{t("common.loading")}</Text>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -516,4 +537,19 @@ const sStyles = StyleSheet.create({
     justifyContent: "center",
   },
   goalChipText: { fontSize: 12, fontWeight: "600" },
+});
+
+const overlayStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 12,
+  },
+  overlayText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
 });

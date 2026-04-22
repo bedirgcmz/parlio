@@ -15,6 +15,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/hooks/useTheme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  REMEMBERED_SHELL_SESSION_KEY,
+  WELCOME_BACK_TOAST_SESSION_KEY,
+} from "@/lib/startupUx";
 
 // Screens
 import AuthNavigator from "./AuthNavigator";
@@ -24,8 +28,6 @@ import CompleteResetPasswordScreen from "@/screens/auth/CompleteResetPasswordScr
 import i18n from "@/i18n";
 
 const Stack = createNativeStackNavigator();
-const WELCOME_BACK_TOAST_SESSION_KEY = "welcome_back_toast_session_key";
-const REMEMBERED_SHELL_SESSION_KEY = "remembered_shell_session_key";
 const REMEMBERED_SHELL_MIN_MS = 1400;
 const LANGUAGE_NOTICE_DELAY_MS = 900;
 
@@ -167,7 +169,8 @@ function WelcomeBackToast({
 export default function AppNavigator() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { user, initialized, initialize, passwordRecoveryActive, session } = useAuthStore();
+  const { user, initialized, initialize, passwordRecoveryActive, session, startupAuthSource } =
+    useAuthStore();
   const uiLanguage = useSettingsStore((s) => s.uiLanguage);
   const targetLanguage = useSettingsStore((s) => s.targetLanguage);
   const settingsInitialized = useSettingsStore((s) => s.initialized);
@@ -405,12 +408,13 @@ export default function AppNavigator() {
   }, [pendingLanguagePreferenceNotice, user?.id]);
 
   const hasRestorableSession = !!session?.user || !!user;
+  const restoredAtStartup = startupAuthSource === "restored";
   const showingRememberedShell =
     hasRestorableSession && (!initialized || !settingsReadyForCurrentUser || settingsLoading);
   const shouldShowRememberedShell = showingRememberedShell && rememberedShellEligible;
 
   useEffect(() => {
-    if (!user?.id || !session || !hasRestorableSession) {
+    if (!restoredAtStartup || !user?.id || !session || !hasRestorableSession) {
       rememberedShellSessionKeyRef.current = null;
       setRememberedShellEligible(false);
       return;
@@ -437,7 +441,7 @@ export default function AppNavigator() {
     return () => {
       cancelled = true;
     };
-  }, [hasRestorableSession, session, user?.id]);
+  }, [hasRestorableSession, restoredAtStartup, session, user?.id]);
 
   useEffect(() => {
     if (!shouldShowRememberedShell || !rememberedShellSessionKeyRef.current) return;
@@ -489,12 +493,17 @@ export default function AppNavigator() {
   }, [hasRestorableSession, shouldShowRememberedShell]);
 
   useEffect(() => {
+    if (!restoredAtStartup) {
+      rememberedShellUserId.current = null;
+      return;
+    }
     if (rememberedShellVisible && user?.id) {
       rememberedShellUserId.current = user.id;
     }
-  }, [rememberedShellVisible, user?.id]);
+  }, [rememberedShellVisible, restoredAtStartup, user?.id]);
 
   useEffect(() => {
+    if (!restoredAtStartup) return;
     if (!user?.id || settingsLoading || !initialized || !settingsReadyForCurrentUser) return;
     if (rememberedShellUserId.current !== user.id) return;
 
@@ -516,7 +525,16 @@ export default function AppNavigator() {
         setWelcomeBackToast(t("onboarding.welcome_back_toast"));
       }
     })();
-  }, [initialized, session?.access_token, session?.refresh_token, settingsLoading, settingsReadyForCurrentUser, t, user?.id]);
+  }, [
+    initialized,
+    restoredAtStartup,
+    session?.access_token,
+    session?.refresh_token,
+    settingsLoading,
+    settingsReadyForCurrentUser,
+    t,
+    user?.id,
+  ]);
 
   // Show loading while initialising
   if (rememberedShellVisible) {

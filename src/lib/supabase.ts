@@ -12,6 +12,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+function getSupabaseAuthStorageKey(url: string): string | null {
+  try {
+    return `sb-${new URL(url).hostname.split(".")[0]}-auth-token`;
+  } catch {
+    return null;
+  }
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
@@ -20,6 +28,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
+
+export async function clearStoredSupabaseSession(): Promise<void> {
+  const authStorageKey = getSupabaseAuthStorageKey(supabaseUrl);
+  if (!authStorageKey) return;
+  await AsyncStorage.removeItem(authStorageKey).catch(() => {});
+}
 
 // Database types (you can generate these from your Supabase schema)
 export type Database = {

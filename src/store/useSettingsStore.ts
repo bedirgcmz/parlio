@@ -93,6 +93,9 @@ function createBootstrapAwareDefaults(state: SettingsState): Settings {
 }
 
 async function persistSettingsToSupabase(userId: string, settings: Settings): Promise<void> {
+  const currentUserId = await getCurrentUserId();
+  if (currentUserId !== userId) return;
+
   const { error } = await supabase.from("user_settings").upsert(
     {
       user_id: userId,
@@ -381,6 +384,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           pendingLanguagePreferenceNotice: SettingsState["pendingLanguagePreferenceNotice"];
         },
       ) => {
+        const currentUserId = await getCurrentUserId();
+        if (currentUserId !== options.userId) {
+          return;
+        }
+
         set({
           ...resolvedSettings,
           bootstrapped: true,
