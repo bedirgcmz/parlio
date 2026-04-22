@@ -48,6 +48,7 @@ interface AuthState {
   session: any;
   loading: boolean;
   initialized: boolean;
+  profileHydrated: boolean;
   isPremiumVerified: boolean;
   passwordRecoveryActive: boolean;
 
@@ -358,6 +359,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     set((state) => ({
       session,
+      profileHydrated:
+        state.user && state.user.id === session.user.id ? state.profileHydrated : false,
       user:
         state.user && state.user.id === session.user.id
           ? {
@@ -421,6 +424,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         user: hydratedUser,
         session,
         initialized: true,
+        profileHydrated: true,
         isPremiumVerified: rcVerified,
       });
 
@@ -485,6 +489,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     set({
       user: null,
       session: null,
+      profileHydrated: true,
       isPremiumVerified: false,
       passwordRecoveryActive: false,
     });
@@ -504,6 +509,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   session: null,
   loading: false,
   initialized: false,
+  profileHydrated: false,
   isPremiumVerified: false,
   passwordRecoveryActive: false,
 
@@ -562,6 +568,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           user,
           session: data.session,
           loading: false,
+          profileHydrated: true,
           isPremiumVerified: rcVerified,
         });
 
@@ -665,7 +672,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
           created_at: data.user.created_at,
         };
 
-        set({ user, session: data.session, loading: false, isPremiumVerified: rcVerified });
+        set({
+          user,
+          session: data.session,
+          loading: false,
+          profileHydrated: true,
+          isPremiumVerified: rcVerified,
+        });
 
         // Start real-time RC listener (clears any previous one first)
         attachRevenueCatListener();
@@ -1127,7 +1140,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         await hydrateStoresFromCache(currentSession.user.id).catch((e) => {
           console.error("[auth] hydrateStoresFromCache failed:", e);
         });
-        set({ initialized: true });
+        set({ initialized: true, profileHydrated: false });
         scheduleHydration(currentSession, "initialize");
         return;
       }
@@ -1162,7 +1175,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               await hydrateStoresFromCache(restoredData.session.user.id).catch((e) => {
                 console.error("[auth] hydrateStoresFromCache (legacy) failed:", e);
               });
-              set({ initialized: true });
+              set({ initialized: true, profileHydrated: false });
               scheduleHydration(restoredData.session, "legacy_restore");
               return;
             }
@@ -1174,10 +1187,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
         }
       }
 
-      set({ initialized: true });
+      set({ initialized: true, profileHydrated: true });
     } catch (error) {
       if (__DEV__) console.error("Auth initialization error:", error);
-      set({ initialized: true });
+      set({ initialized: true, profileHydrated: true });
     }
   },
 
@@ -1195,6 +1208,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       session: null,
       loading: false,
       initialized: false,
+      profileHydrated: false,
       isPremiumVerified: false,
       passwordRecoveryActive: false,
     });

@@ -146,6 +146,7 @@ export default function HomeScreen() {
     ) / 2
   );
   const isPremium = useAuthStore((s) => s.user?.is_premium ?? false);
+  const profileHydrated = useAuthStore((s) => s.profileHydrated);
   const refreshProfile = useAuthStore((s) => s.refreshProfile);
   const { sentences, presetSentences, loadCategories, loadSentences, loadPresetSentences } =
     useSentenceStore();
@@ -288,13 +289,13 @@ export default function HomeScreen() {
   }, [isPremium, loadCategories, loadPresetSentences, loadProgress, loadSentences, refreshProfile]);
 
   React.useEffect(() => {
-    if (!isReady || isPremium || isHintShown("premiumIntro")) {
+    if (!isReady || !profileHydrated || isPremium || isHintShown("premiumIntro")) {
       return;
     }
 
     const timer = setTimeout(() => setPremiumHintVisible(true), 700);
     return () => clearTimeout(timer);
-  }, [isHintShown, isPremium, isReady]);
+  }, [isHintShown, isPremium, isReady, profileHydrated]);
 
   useFocusEffect(
     useCallback(() => {
