@@ -848,6 +848,11 @@ export default function LearnScreen() {
                 <Text style={[styles.segmentLabel, { color: "#fff" }]}>
                   {t("learn.tab_listen")}
                 </Text>
+                {filteredLearningList.length > 0 && (
+                  <View style={[styles.badge, { backgroundColor: "rgba(255,255,255,0.3)" }]}>
+                    <Text style={styles.badgeText}>{filteredLearningList.length}</Text>
+                  </View>
+                )}
               </GradientView>
             ) : (
               <View style={styles.segmentTabInner}>
@@ -855,6 +860,11 @@ export default function LearnScreen() {
                 <Text style={[styles.segmentLabel, { color: colors.textSecondary }]}>
                   {t("learn.tab_listen")}
                 </Text>
+                {filteredLearningList.length > 0 && (
+                  <View style={[styles.badge, { backgroundColor: "#4DA3FF" }]}>
+                    <Text style={styles.badgeText}>{filteredLearningList.length}</Text>
+                  </View>
+                )}
               </View>
             )}
           </TouchableOpacity>
