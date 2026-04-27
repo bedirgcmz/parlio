@@ -45,6 +45,9 @@ export type Database = {
           display_name: string | null;
           avatar_url: string | null;
           is_premium: boolean;
+          interactive_sign_in_count: number;
+          last_interactive_sign_in_at: string | null;
+          last_interactive_sign_in_install_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -52,6 +55,9 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           is_premium?: boolean;
+          interactive_sign_in_count?: number;
+          last_interactive_sign_in_at?: string | null;
+          last_interactive_sign_in_install_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -59,6 +65,9 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           is_premium?: boolean;
+          interactive_sign_in_count?: number;
+          last_interactive_sign_in_at?: string | null;
+          last_interactive_sign_in_install_id?: string | null;
         };
       };
       sentences: {
