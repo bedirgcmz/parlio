@@ -22,6 +22,7 @@ import { NotificationSyncBridge } from "@/components/NotificationSyncBridge";
 import { useAchievementStore } from "@/store/useAchievementStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { ensureInstallIntegrity } from "@/lib/installIntegrity";
 import i18n from "@/i18n";
 import type { SupportedLanguage } from "@/types";
 
@@ -45,9 +46,11 @@ export default function App() {
   const clearAchievements = useAchievementStore((s) => s.clear);
   const activatePasswordRecovery = useAuthStore((s) => s.activatePasswordRecovery);
   const clearPasswordRecovery = useAuthStore((s) => s.clearPasswordRecovery);
+  const clearAuthState = useAuthStore((s) => s.clear);
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const bootstrapped = useSettingsStore((s) => s.bootstrapped);
   const bootstrapSettings = useSettingsStore((s) => s.bootstrap);
+  const clearSettingsState = useSettingsStore((s) => s.clear);
   const [startupReady, setStartupReady] = useState(false);
 
   useEffect(() => {
@@ -64,6 +67,14 @@ export default function App() {
 
     void (async () => {
       try {
+        const integrity = await ensureInstallIntegrity();
+        if (integrity.resetPerformed) {
+          console.log("[install] integrity reset performed");
+          clearAuthState();
+          clearSettingsState();
+          clearAchievements();
+        }
+
         const { uiLanguage, targetLanguage } = resolveStartupLanguagePair();
         await bootstrapSettings({
           systemLanguage: uiLanguage,
@@ -87,7 +98,14 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [bootstrapped, bootstrapSettings, systemColorScheme]);
+  }, [
+    bootstrapped,
+    bootstrapSettings,
+    clearAchievements,
+    clearAuthState,
+    clearSettingsState,
+    systemColorScheme,
+  ]);
 
   useEffect(() => {
     if (!userId) {

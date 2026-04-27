@@ -13,6 +13,7 @@ import {
 import * as AppleAuthentication from "expo-apple-authentication";
 import { clearAITrialCache } from "@/services/gemini";
 import { establishSessionFromCallbackUrl } from "@/lib/authCallback";
+import { getInstallId } from "@/lib/installIntegrity";
 import type { GameLeaderboard } from "@/types/game";
 import { useAchievementStore } from "./useAchievementStore";
 import { useGameStore } from "./useGameStore";
@@ -535,9 +536,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
       () => ({ active: false, verified: false })
     );
 
+    const installId = options?.installId ?? (await getInstallId());
     const pendingReturningWelcome = await resolvePendingReturningWelcome(
       session.user.id,
-      options?.installId ?? null
+      installId
     );
 
     const user: User = {
