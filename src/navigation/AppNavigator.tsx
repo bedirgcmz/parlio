@@ -161,7 +161,8 @@ function WelcomeBackToast({
 export default function AppNavigator() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { user, initialized, initialize, passwordRecoveryActive } = useAuthStore();
+  const { user, initialized, initialize, passwordRecoveryActive, loading: authLoading } =
+    useAuthStore();
   const pendingReturningWelcome = useAuthStore((s) => s.pendingReturningWelcome);
   const consumePendingReturningWelcome = useAuthStore((s) => s.consumePendingReturningWelcome);
   const uiLanguage = useSettingsStore((s) => s.uiLanguage);
@@ -401,6 +402,7 @@ export default function AppNavigator() {
     pendingReturningWelcome && user?.id === pendingReturningWelcome.userId
       ? pendingReturningWelcome
       : null;
+  const blockingInteractiveAuthTransition = authLoading && !!user;
   const waitingOnAppReady = !initialized || !settingsReadyForCurrentUser || settingsLoading;
 
   useEffect(() => {
@@ -462,6 +464,15 @@ export default function AppNavigator() {
   }
 
   if (!initialized || !settingsReadyForCurrentUser || settingsLoading) {
+    return (
+      <StartupLoadingScreen
+        title={t("common.loading")}
+        body={t("onboarding.startup_preparing_body")}
+      />
+    );
+  }
+
+  if (blockingInteractiveAuthTransition) {
     return (
       <StartupLoadingScreen
         title={t("common.loading")}
