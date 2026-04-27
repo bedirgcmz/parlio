@@ -1,11 +1,29 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const WELCOME_BACK_TOAST_SESSION_KEY = "welcome_back_toast_session_key";
-export const REMEMBERED_SHELL_SESSION_KEY = "remembered_shell_session_key";
+const RETURNING_WELCOME_SHOWN_COUNT_KEY_PREFIX = "returning_welcome_shown_count";
 
-export async function clearRememberedStartupUxState(): Promise<void> {
-  await AsyncStorage.multiRemove([
-    WELCOME_BACK_TOAST_SESSION_KEY,
-    REMEMBERED_SHELL_SESSION_KEY,
-  ]).catch(() => {});
+function getReturningWelcomeShownCountKey(userId: string) {
+  return `${RETURNING_WELCOME_SHOWN_COUNT_KEY_PREFIX}:${userId}`;
+}
+
+export async function getReturningWelcomeShownCount(userId: string): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getReturningWelcomeShownCountKey(userId));
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setReturningWelcomeShownCount(
+  userId: string,
+  signInCount: number
+): Promise<void> {
+  await AsyncStorage.setItem(
+    getReturningWelcomeShownCountKey(userId),
+    String(signInCount)
+  ).catch(() => {});
 }

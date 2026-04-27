@@ -3,7 +3,7 @@ import { Alert, Platform } from "react-native";
 import i18n from "@/i18n";
 import * as WebBrowser from "expo-web-browser";
 import { clearStoredSupabaseSession, supabase } from "../lib/supabase";
-import { clearRememberedStartupUxState } from "@/lib/startupUx";
+import { getReturningWelcomeShownCount } from "@/lib/startupUx";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   logInUser,
@@ -36,6 +36,11 @@ interface User {
   created_at: string;
 }
 
+interface PendingReturningWelcome {
+  userId: string;
+  signInCount: number;
+}
+
 /** Returns true if the manual override is active (set and not expired). */
 function isOverrideActive(profile: { premium_override?: boolean; premium_override_expires_at?: string | null } | null | undefined): boolean {
   if (!profile?.premium_override) return false;
@@ -53,6 +58,7 @@ interface AuthState {
   profileHydrated: boolean;
   isPremiumVerified: boolean;
   passwordRecoveryActive: boolean;
+  pendingReturningWelcome: PendingReturningWelcome | null;
 
   // Actions
   setPremiumStatus: (active: boolean) => void;
@@ -82,6 +88,7 @@ interface AuthState {
   ) => Promise<{ success: boolean; wrongPassword?: boolean; error?: string }>;
   activatePasswordRecovery: () => void;
   clearPasswordRecovery: () => void;
+  consumePendingReturningWelcome: () => void;
   initialize: () => Promise<void>;
   clear: () => void;
 }
@@ -357,6 +364,40 @@ export const useAuthStore = create<AuthState>((set, get) => {
     created_at: session.user.created_at,
   });
 
+  const resolvePendingReturningWelcome = async (
+    userId: string,
+    installId: string | null = null
+  ): Promise<PendingReturningWelcome | null> => {
+    try {
+      const { data, error } = await supabase.rpc("record_interactive_sign_in", {
+        p_install_id: installId,
+      });
+
+      if (error) {
+        console.error("[auth] record_interactive_sign_in failed:", error);
+        return null;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const signInCount = Number(row?.interactive_sign_in_count);
+      const shouldShow = row?.show_returning_welcome === true;
+
+      if (!shouldShow || !Number.isFinite(signInCount)) {
+        return null;
+      }
+
+      const lastShownCount = await getReturningWelcomeShownCount(userId);
+      if (lastShownCount === signInCount) {
+        return null;
+      }
+
+      return { userId, signInCount };
+    } catch (error) {
+      console.error("[auth] resolvePendingReturningWelcome failed:", error);
+      return null;
+    }
+  };
+
   const primeAuthenticatedSession = (session: any) => {
     if (!session?.user) return;
 
@@ -463,6 +504,67 @@ export const useAuthStore = create<AuthState>((set, get) => {
     });
   };
 
+  const finishInteractiveSignIn = async (
+    session: any,
+    options?: {
+      displayNameOverride?: string | null;
+      emailOverride?: string | null;
+      installId?: string | null;
+    }
+  ) => {
+    if (!session?.user) {
+      throw new Error("Interactive sign-in missing session user");
+    }
+
+    const displayNameOverride = options?.displayNameOverride?.trim() || null;
+
+    if (displayNameOverride) {
+      await supabase
+        .from("profiles")
+        .update({ display_name: displayNameOverride })
+        .eq("id", session.user.id);
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+
+    const { active: rcActive, verified: rcVerified } = await logInUser(session.user.id).catch(
+      () => ({ active: false, verified: false })
+    );
+
+    const pendingReturningWelcome = await resolvePendingReturningWelcome(
+      session.user.id,
+      options?.installId ?? null
+    );
+
+    const user: User = {
+      id: session.user.id,
+      email: session.user.email || options?.emailOverride || "",
+      display_name: displayNameOverride || profile?.display_name || "",
+      avatar_url: profile?.avatar_url || "",
+      premium_override: isOverrideActive(profile),
+      is_premium:
+        rcActive || isOverrideActive(profile) || (!rcVerified && (profile?.is_premium ?? false)),
+      leaderboard_visible: profile?.leaderboard_visible ?? true,
+      created_at: session.user.created_at,
+    };
+
+    set({
+      user,
+      session,
+      loading: false,
+      startupAuthSource: "interactive",
+      profileHydrated: true,
+      isPremiumVerified: rcVerified,
+      pendingReturningWelcome,
+    });
+
+    attachRevenueCatListener();
+  };
+
   const clearAuthenticatedState = async (
     reason: "manual_signout" | "delete_account" | "signed_out" | "store_clear"
   ) => {
@@ -507,6 +609,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       profileHydrated: true,
       isPremiumVerified: false,
       passwordRecoveryActive: false,
+      pendingReturningWelcome: null,
     });
 
     lastHydratedSessionKey = null;
@@ -515,7 +618,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
     lastCleanupReason = reason;
     lastCleanupAt = Date.now();
     pendingExplicitCleanupReason = null;
-    await clearRememberedStartupUxState();
     await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
     await clearAITrialCache();
   };
@@ -529,6 +631,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   profileHydrated: false,
   isPremiumVerified: false,
   passwordRecoveryActive: false,
+  pendingReturningWelcome: null,
 
   setPremiumStatus: (active: boolean) => {
     const { user } = get();
@@ -556,42 +659,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return { success: false, error: error.message };
       }
 
-      if (data.user) {
-        // Fetch user profile
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", data.user.id)
-          .single();
-
-        // RC login: use CustomerInfo returned directly by logIn() to avoid stale cache
-        const { active: rcActive, verified: rcVerified } = await logInUser(data.user.id).catch(
-          () => ({ active: false, verified: false })
-        );
-
-        const user: User = {
-          id: data.user.id,
-          email: data.user.email!,
-          display_name: profile?.display_name || "",
-          avatar_url: profile?.avatar_url || "",
-          premium_override: isOverrideActive(profile),
-          // RC active → premium. Manual override (active + not expired) → premium. RC unverified → trust cached Supabase value.
-          is_premium: rcActive || isOverrideActive(profile) || (!rcVerified && (profile?.is_premium ?? false)),
-          leaderboard_visible: profile?.leaderboard_visible ?? true,
-          created_at: data.user.created_at,
-        };
-
-        set({
-          user,
-          session: data.session,
-          loading: false,
-          startupAuthSource: "interactive",
-          profileHydrated: true,
-          isPremiumVerified: rcVerified,
-        });
-
-        // Start real-time RC listener (clears any previous one first)
-        attachRevenueCatListener();
+      if (data.session?.user) {
+        await finishInteractiveSignIn(data.session);
       }
 
       return { success: true };
@@ -604,7 +673,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   signUp: async (email: string, password: string, fullName?: string) => {
     set({ loading: true });
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -619,7 +688,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return { success: false, error: error.message };
       }
 
-      set({ loading: false, startupAuthSource: "interactive" });
+      if (data.session?.user) {
+        await finishInteractiveSignIn(data.session, {
+          displayNameOverride: fullName ?? null,
+        });
+      } else {
+        set({ loading: false, startupAuthSource: "interactive" });
+      }
       return { success: true };
     } catch (error) {
       set({ loading: false });
@@ -654,53 +729,17 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return { success: false, error: error.message };
       }
 
-      if (data.user) {
-        // Apple provides full name only on first sign-in — save it if present
+      if (data.session?.user) {
         const displayName = credential.fullName
           ? [credential.fullName.givenName, credential.fullName.familyName]
               .filter(Boolean)
               .join(" ")
           : null;
 
-        if (displayName) {
-          await supabase
-            .from("profiles")
-            .update({ display_name: displayName })
-            .eq("id", data.user.id);
-        }
-
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", data.user.id)
-          .single();
-        const { active: rcActive, verified: rcVerified } = await logInUser(data.user.id).catch(
-          () => ({ active: false, verified: false })
-        );
-
-        const user: User = {
-          id: data.user.id,
-          email: data.user.email || credential.email || "",
-          display_name: displayName || profile?.display_name || "",
-          avatar_url: profile?.avatar_url || "",
-          premium_override: isOverrideActive(profile),
-          // RC active → premium. Manual override (active + not expired) → premium. RC unverified → trust cached Supabase value.
-          is_premium: rcActive || isOverrideActive(profile) || (!rcVerified && (profile?.is_premium ?? false)),
-          leaderboard_visible: profile?.leaderboard_visible ?? true,
-          created_at: data.user.created_at,
-        };
-
-        set({
-          user,
-          session: data.session,
-          loading: false,
-          startupAuthSource: "interactive",
-          profileHydrated: true,
-          isPremiumVerified: rcVerified,
+        await finishInteractiveSignIn(data.session, {
+          displayNameOverride: displayName,
+          emailOverride: data.user?.email || credential.email || "",
         });
-
-        // Start real-time RC listener (clears any previous one first)
-        attachRevenueCatListener();
       }
 
       return { success: true };
@@ -758,7 +797,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
 
       console.log("SIGN IN WITH GOOGLE SUCCESS PATH");
-      set({ startupAuthSource: "interactive" });
+      await finishInteractiveSignIn(callbackResult.session);
       return { success: true };
     } catch (error) {
       console.log("SIGN IN WITH GOOGLE CATCH:", error);
@@ -1076,6 +1115,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
   clearPasswordRecovery: () => set({ passwordRecoveryActive: false }),
 
+  consumePendingReturningWelcome: () => set({ pendingReturningWelcome: null }),
+
   initialize: async () => {
     try {
       // Clean up any previous listener before attaching a new one.
@@ -1237,6 +1278,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       profileHydrated: false,
       isPremiumVerified: false,
       passwordRecoveryActive: false,
+      pendingReturningWelcome: null,
     });
   },
   };

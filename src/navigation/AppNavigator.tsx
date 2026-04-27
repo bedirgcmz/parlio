@@ -14,11 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/hooks/useTheme";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  REMEMBERED_SHELL_SESSION_KEY,
-  WELCOME_BACK_TOAST_SESSION_KEY,
-} from "@/lib/startupUx";
+import { setReturningWelcomeShownCount } from "@/lib/startupUx";
 
 // Screens
 import AuthNavigator from "./AuthNavigator";
@@ -30,10 +26,6 @@ import i18n from "@/i18n";
 const Stack = createNativeStackNavigator();
 const REMEMBERED_SHELL_MIN_MS = 1400;
 const LANGUAGE_NOTICE_DELAY_MS = 900;
-
-function buildStartupSessionKey(userId: string, session: any) {
-  return `${userId}:${session?.refresh_token ?? session?.access_token ?? "session"}`;
-}
 
 function StartupLoadingScreen({
   title,
@@ -169,8 +161,9 @@ function WelcomeBackToast({
 export default function AppNavigator() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { user, initialized, initialize, passwordRecoveryActive, session, startupAuthSource } =
-    useAuthStore();
+  const { user, initialized, initialize, passwordRecoveryActive } = useAuthStore();
+  const pendingReturningWelcome = useAuthStore((s) => s.pendingReturningWelcome);
+  const consumePendingReturningWelcome = useAuthStore((s) => s.consumePendingReturningWelcome);
   const uiLanguage = useSettingsStore((s) => s.uiLanguage);
   const targetLanguage = useSettingsStore((s) => s.targetLanguage);
   const settingsInitialized = useSettingsStore((s) => s.initialized);
@@ -191,16 +184,13 @@ export default function AppNavigator() {
   const handledReconnectCount = useRef(0);
   // Track eager load per user so we don't repeat it on every render
   const eagerLoadedForUser = useRef<string | null>(null);
-  const rememberedShellUserId = useRef<string | null>(null);
-  const rememberedShellSessionKeyRef = useRef<string | null>(null);
   const shownLanguageNoticeKey = useRef<string | null>(null);
   const scheduledLanguageNoticeKey = useRef<string | null>(null);
   const languageNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rememberedShellHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rememberedShellStartedAtRef = useRef<number | null>(null);
+  const returningWelcomeHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const returningWelcomeStartedAtRef = useRef<number | null>(null);
   const [welcomeBackToast, setWelcomeBackToast] = useState<string | null>(null);
-  const [rememberedShellVisible, setRememberedShellVisible] = useState(false);
-  const [rememberedShellEligible, setRememberedShellEligible] = useState(false);
+  const [returningWelcomeVisible, setReturningWelcomeVisible] = useState(false);
 
   // ── Auth initialisation ───────────────────────────────────────────────────
   useEffect(() => {
@@ -331,7 +321,7 @@ export default function AppNavigator() {
       scheduledLanguageNoticeKey.current = null;
       return;
     }
-    if (rememberedShellVisible || welcomeBackToast) {
+    if (returningWelcomeVisible || welcomeBackToast) {
       scheduledLanguageNoticeKey.current = null;
       return;
     }
@@ -391,7 +381,7 @@ export default function AppNavigator() {
   }, [
     clearPendingLanguagePreferenceNotice,
     pendingLanguagePreferenceNotice,
-    rememberedShellVisible,
+    returningWelcomeVisible,
     settingsLoading,
     settingsReadyForCurrentUser,
     t,
@@ -407,137 +397,62 @@ export default function AppNavigator() {
     scheduledLanguageNoticeKey.current = null;
   }, [pendingLanguagePreferenceNotice, user?.id]);
 
-  const hasRestorableSession = !!session?.user || !!user;
-  const restoredAtStartup = startupAuthSource === "restored";
-  const showingRememberedShell =
-    hasRestorableSession && (!initialized || !settingsReadyForCurrentUser || settingsLoading);
-  const shouldShowRememberedShell = showingRememberedShell && rememberedShellEligible;
+  const activeReturningWelcome =
+    pendingReturningWelcome && user?.id === pendingReturningWelcome.userId
+      ? pendingReturningWelcome
+      : null;
+  const waitingOnAppReady = !initialized || !settingsReadyForCurrentUser || settingsLoading;
 
   useEffect(() => {
-    if (!restoredAtStartup || !user?.id || !session || !hasRestorableSession) {
-      rememberedShellSessionKeyRef.current = null;
-      setRememberedShellEligible(false);
+    if (returningWelcomeHideTimerRef.current) {
+      clearTimeout(returningWelcomeHideTimerRef.current);
+      returningWelcomeHideTimerRef.current = null;
+    }
+
+    if (!activeReturningWelcome) {
+      returningWelcomeStartedAtRef.current = null;
+      setReturningWelcomeVisible(false);
       return;
     }
 
-    const activeSessionKey = buildStartupSessionKey(user.id, session);
-    rememberedShellSessionKeyRef.current = activeSessionKey;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const shownSessionKey = await AsyncStorage.getItem(REMEMBERED_SHELL_SESSION_KEY);
-        if (!cancelled) {
-          setRememberedShellEligible(shownSessionKey !== activeSessionKey);
-        }
-      } catch {
-        if (!cancelled) {
-          setRememberedShellEligible(true);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hasRestorableSession, restoredAtStartup, session, user?.id]);
-
-  useEffect(() => {
-    if (!shouldShowRememberedShell || !rememberedShellSessionKeyRef.current) return;
-
-    void AsyncStorage.setItem(REMEMBERED_SHELL_SESSION_KEY, rememberedShellSessionKeyRef.current).catch(
-      () => undefined
-    );
-  }, [shouldShowRememberedShell]);
-
-  useEffect(() => {
-    if (rememberedShellHideTimerRef.current) {
-      clearTimeout(rememberedShellHideTimerRef.current);
-      rememberedShellHideTimerRef.current = null;
+    if (returningWelcomeStartedAtRef.current == null) {
+      returningWelcomeStartedAtRef.current = Date.now();
     }
 
-    if (!hasRestorableSession) {
-      rememberedShellStartedAtRef.current = null;
-      setRememberedShellVisible(false);
+    setReturningWelcomeVisible(true);
+
+    if (waitingOnAppReady) {
       return;
     }
 
-    if (shouldShowRememberedShell) {
-      if (rememberedShellStartedAtRef.current == null) {
-        rememberedShellStartedAtRef.current = Date.now();
-      }
-      setRememberedShellVisible(true);
-      return;
-    }
-
-    if (rememberedShellStartedAtRef.current == null) {
-      setRememberedShellVisible(false);
-      return;
-    }
-
-    const elapsed = Date.now() - rememberedShellStartedAtRef.current;
+    const elapsed = Date.now() - returningWelcomeStartedAtRef.current;
     const remaining = Math.max(0, REMEMBERED_SHELL_MIN_MS - elapsed);
 
-    rememberedShellHideTimerRef.current = setTimeout(() => {
-      rememberedShellStartedAtRef.current = null;
-      setRememberedShellVisible(false);
+    const { userId, signInCount } = activeReturningWelcome;
+
+    returningWelcomeHideTimerRef.current = setTimeout(() => {
+      returningWelcomeStartedAtRef.current = null;
+      setReturningWelcomeVisible(false);
+      consumePendingReturningWelcome();
+      setWelcomeBackToast(t("onboarding.welcome_back_toast"));
+      void setReturningWelcomeShownCount(userId, signInCount);
     }, remaining);
 
     return () => {
-      if (rememberedShellHideTimerRef.current) {
-        clearTimeout(rememberedShellHideTimerRef.current);
-        rememberedShellHideTimerRef.current = null;
+      if (returningWelcomeHideTimerRef.current) {
+        clearTimeout(returningWelcomeHideTimerRef.current);
+        returningWelcomeHideTimerRef.current = null;
       }
     };
-  }, [hasRestorableSession, shouldShowRememberedShell]);
-
-  useEffect(() => {
-    if (!restoredAtStartup) {
-      rememberedShellUserId.current = null;
-      return;
-    }
-    if (rememberedShellVisible && user?.id) {
-      rememberedShellUserId.current = user.id;
-    }
-  }, [rememberedShellVisible, restoredAtStartup, user?.id]);
-
-  useEffect(() => {
-    if (!restoredAtStartup) return;
-    if (!user?.id || settingsLoading || !initialized || !settingsReadyForCurrentUser) return;
-    if (rememberedShellUserId.current !== user.id) return;
-
-    const activeSessionKey = buildStartupSessionKey(user.id, session);
-
-    void (async () => {
-      try {
-        const lastShownSessionKey = await AsyncStorage.getItem(WELCOME_BACK_TOAST_SESSION_KEY);
-        rememberedShellUserId.current = null;
-
-        if (lastShownSessionKey === activeSessionKey) {
-          return;
-        }
-
-        await AsyncStorage.setItem(WELCOME_BACK_TOAST_SESSION_KEY, activeSessionKey);
-        setWelcomeBackToast(t("onboarding.welcome_back_toast"));
-      } catch {
-        rememberedShellUserId.current = null;
-        setWelcomeBackToast(t("onboarding.welcome_back_toast"));
-      }
-    })();
   }, [
-    initialized,
-    restoredAtStartup,
-    session?.access_token,
-    session?.refresh_token,
-    settingsLoading,
-    settingsReadyForCurrentUser,
+    activeReturningWelcome,
+    consumePendingReturningWelcome,
     t,
-    user?.id,
+    waitingOnAppReady,
   ]);
 
   // Show loading while initialising
-  if (rememberedShellVisible) {
+  if (returningWelcomeVisible) {
     return (
       <StartupLoadingScreen
         title={t("onboarding.remembered_title")}
