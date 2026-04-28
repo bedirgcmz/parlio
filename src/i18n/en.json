@@ -32,8 +32,6 @@
     "reset_password_sent": "We sent a password reset link to {{email}}. Open the email to choose a new password.",
     "offline_auth_banner": "You are offline. You can review this screen, but sign-in and account actions need internet.",
     "offline_welcome_hint": "You can choose your interface and learning language now. Sign-in will work when you are back online.",
-    "remembered_title": "Welcome back",
-    "remembered_body": "Loading your saved settings and session details.",
     "startup_preparing_body": "Preparing your startup experience.",
     "welcome_back_toast": "Welcome back. Your setup is ready.",
     "why_premium_title": "Why users upgrade to Premium",

@@ -32,8 +32,6 @@
     "reset_password_sent": "Enviamos um link de redefinição de senha para {{email}}. Abra o e-mail para escolher uma nova senha.",
     "offline_auth_banner": "Você está offline. Pode revisar esta tela, mas entrar e fazer ações de conta precisa de internet.",
     "offline_welcome_hint": "Você pode escolher agora o idioma da interface e o idioma de estudo. O login vai funcionar quando você voltar a ficar online.",
-    "remembered_title": "Boas-vindas de volta",
-    "remembered_body": "Carregando suas configurações salvas e detalhes da sessão.",
     "startup_preparing_body": "Preparando sua experiência inicial.",
     "welcome_back_toast": "Que bom ver você de novo. Suas configurações estão prontas.",
     "why_premium_title": "Por que os usuários fazem upgrade para o Premium",

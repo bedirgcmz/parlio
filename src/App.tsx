@@ -69,7 +69,7 @@ export default function App() {
       try {
         const integrity = await ensureInstallIntegrity();
         if (integrity.resetPerformed) {
-          console.log("[install] integrity reset performed");
+          if (__DEV__) console.log("[install] integrity reset performed");
           clearAuthState();
           clearSettingsState();
           clearAchievements();

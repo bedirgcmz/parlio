@@ -32,8 +32,6 @@
     "reset_password_sent": "Wir haben einen Link zum Zurücksetzen des Passworts an {{email}} gesendet. Öffnen Sie die E-Mail, um ein neues Passwort festzulegen.",
     "offline_auth_banner": "Sie sind offline. Sie können diesen Bildschirm ansehen, aber Anmeldung und Kontoaktionen benötigen Internet.",
     "offline_welcome_hint": "Sie können jetzt Ihre Oberflächensprache und Lernsprache auswählen. Die Anmeldung funktioniert, sobald Sie wieder online sind.",
-    "remembered_title": "Willkommen zurück",
-    "remembered_body": "Deine gespeicherten Einstellungen und Sitzungsdetails werden geladen.",
     "startup_preparing_body": "Dein Start wird vorbereitet.",
     "welcome_back_toast": "Willkommen zurück. Deine Einstellungen sind bereit.",
     "why_premium_title": "Warum Nutzer auf Premium upgraden",

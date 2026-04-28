@@ -26,6 +26,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { ThemeColors } from "@/providers/ThemeProvider";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useNetworkStore } from "@/store/useNetworkStore";
 import { useI18n } from "@/providers/I18nProvider";
 import { MainStackParamList, SupportedLanguage } from "@/types";
 import { TimePicker, LangPicker } from "@/components/SettingsPicker";
@@ -172,6 +173,11 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
+    if (useNetworkStore.getState().isOnline === false) {
+      Alert.alert(t("common.offline_title"), t("common.offline_body"));
+      return;
+    }
+
     Alert.alert(
       t("settings.delete_account"),
       t("settings.delete_account_warning"),

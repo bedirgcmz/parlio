@@ -32,8 +32,6 @@
     "reset_password_sent": "Vi skickade en länk för lösenordsåterställning till {{email}}. Öppna mejlet för att välja ett nytt lösenord.",
     "offline_auth_banner": "Du är offline. Du kan granska den här skärmen, men inloggning och kontoåtgärder kräver internet.",
     "offline_welcome_hint": "Du kan välja gränssnittsspråk och inlärningsspråk nu. Inloggning fungerar när du är online igen.",
-    "remembered_title": "Välkommen tillbaka",
-    "remembered_body": "Dina sparade inställningar och sessionsdetaljer laddas.",
     "startup_preparing_body": "Förbereder din startupplevelse.",
     "welcome_back_toast": "Välkommen tillbaka. Dina inställningar är klara.",
     "why_premium_title": "Varför användare uppgraderar till Premium",

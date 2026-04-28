@@ -27,6 +27,7 @@ import { useSentenceStore } from "./useSentenceStore";
 import { useSettingsStore } from "./useSettingsStore";
 import { clearUserCache, readCache } from "@/lib/offlineCache";
 import { useOfflineQueueStore } from "./useOfflineQueueStore";
+import { useNetworkStore } from "./useNetworkStore";
 import type { Category } from "@/types";
 
 interface User {
@@ -902,7 +903,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         });
       }
       await clearStoredSupabaseSession();
-      console.log("[auth] manual_signout_cleanup");
+      if (__DEV__) console.log("[auth] manual_signout_cleanup");
       await clearAuthenticatedState("manual_signout");
       await AsyncStorage.multiRemove(["user_settings", "user_settings:guest"]);
       await logOutUser();
@@ -917,6 +918,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
   },
 
   deleteAccount: async () => {
+    if (useNetworkStore.getState().isOnline === false) {
+      return { success: false, error: i18n.t("common.offline_body") };
+    }
+
     set({ loading: true });
     try {
       // Refresh session to ensure a fresh, non-expired access token
@@ -941,7 +946,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         console.error("[auth] delete_account local signout failed:", error);
       });
       await clearStoredSupabaseSession();
-      console.log("[auth] delete_account_cleanup");
+      if (__DEV__) console.log("[auth] delete_account_cleanup");
       await clearAuthenticatedState("delete_account");
       await AsyncStorage.multiRemove(["user_settings", "user_settings:guest"]);
       await logOutUser();
@@ -1199,7 +1204,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((event, session) => {
-        console.log("AUTH STATE CHANGE EVENT:", event, !!session?.user);
+        if (__DEV__) console.log("AUTH STATE CHANGE EVENT:", event, !!session?.user);
         if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.user) {
           primeAuthenticatedSession(session);
           scheduleHydration(session, event);
@@ -1227,9 +1232,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
               Date.now() - lastCleanupAt < EXPLICIT_CLEANUP_GUARD_MS;
 
             if (explicitCleanupInFlight || recentExplicitCleanup) {
-              console.log(
-                `[auth] cleanup_skipped_explicit reason=${explicitCleanupInFlight ?? lastCleanupReason}`
-              );
+              if (__DEV__) {
+                console.log(
+                  `[auth] cleanup_skipped_explicit reason=${explicitCleanupInFlight ?? lastCleanupReason}`
+                );
+              }
               pendingExplicitCleanupReason = null;
               return;
             }
@@ -1240,7 +1247,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               } = await supabase.auth.getSession();
 
               if (currentSession?.user) {
-                console.log("[auth] cleanup_skipped_recoverable");
+                if (__DEV__) console.log("[auth] cleanup_skipped_recoverable");
                 primeAuthenticatedSession(currentSession);
                 await hydrateAuthenticatedSession(currentSession);
                 return;
@@ -1249,7 +1256,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               console.error("[auth] post-SIGNED_OUT verification failed:", error);
             }
 
-            console.log("[auth] cleanup_confirmed_signed_out");
+            if (__DEV__) console.log("[auth] cleanup_confirmed_signed_out");
             await clearAuthenticatedState("signed_out");
           })();
         }
@@ -1266,7 +1273,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
 
       if (currentSession?.user) {
-        console.log("[auth] initialize restored session source=supabase_persisted");
+        if (__DEV__) console.log("[auth] initialize restored session source=supabase_persisted");
         primeAuthenticatedSession(currentSession);
         // Pre-populate stores from cache so screens have data on first render.
         await hydrateStoresFromCache(currentSession.user.id).catch((e) => {
@@ -1282,13 +1289,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       // remove the legacy key immediately so it cannot act as a second source.
       const storedSession = await AsyncStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
       if (storedSession) {
-        console.log("[auth] legacy_read");
+        if (__DEV__) console.log("[auth] legacy_read");
         try {
           const parsedSession = JSON.parse(storedSession);
           const sessionTokens = extractSessionTokens(parsedSession);
 
           if (!sessionTokens) {
-            console.log("[auth] legacy_removed reason=malformed");
+            if (__DEV__) console.log("[auth] legacy_removed reason=malformed");
             await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
           } else {
             const {
@@ -1297,12 +1304,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
             } = await supabase.auth.setSession(sessionTokens);
 
             if (sessionError || !restoredData.session?.user) {
-              console.log("[auth] legacy_removed reason=stale");
+              if (__DEV__) console.log("[auth] legacy_removed reason=stale");
               await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
             } else {
-              console.log("[auth] legacy_removed reason=migrated");
+              if (__DEV__) console.log("[auth] legacy_removed reason=migrated");
               await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
-              console.log("[auth] initialize restored session source=legacy_fallback");
+              if (__DEV__) console.log("[auth] initialize restored session source=legacy_fallback");
               primeAuthenticatedSession(restoredData.session);
               await hydrateStoresFromCache(restoredData.session.user.id).catch((e) => {
                 console.error("[auth] hydrateStoresFromCache (legacy) failed:", e);
@@ -1314,7 +1321,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           }
         } catch (error) {
           console.error("[auth] failed to parse legacy session copy:", error);
-          console.log("[auth] legacy_removed reason=parse_error");
+          if (__DEV__) console.log("[auth] legacy_removed reason=parse_error");
           await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
         }
       }

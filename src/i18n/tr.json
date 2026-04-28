@@ -32,8 +32,6 @@
     "reset_password_sent": "{{email}} adresine bir şifre sıfırlama bağlantısı gönderdik. Yeni şifreni seçmek için e-postanı aç.",
     "offline_auth_banner": "Şu anda çevrimdışısınız. Bu ekranı inceleyebilirsiniz ama giriş ve hesap işlemleri için internet gerekir.",
     "offline_welcome_hint": "Arayüz dilinizi ve öğrenme dilinizi şimdi seçebilirsiniz. Giriş, yeniden çevrimiçi olduğunuzda çalışacaktır.",
-    "remembered_title": "Tekrar hoş geldin",
-    "remembered_body": "Kayıtlı ayarların ve oturum ayrıntıların yükleniyor.",
     "startup_preparing_body": "Başlangıç deneyimin hazırlanıyor.",
     "welcome_back_toast": "Tekrar hoş geldin. Ayarların hazır.",
     "why_premium_title": "Kullanıcılar neden Premium'a geçiyor?",

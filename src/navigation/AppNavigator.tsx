@@ -223,7 +223,9 @@ export default function AppNavigator() {
 
     eagerLoadedForUser.current = user.id;
 
-    console.log("[AppNavigator] eager cache population — user online, loading all stores");
+    if (__DEV__) {
+      console.log("[AppNavigator] eager cache population — user online, loading all stores");
+    }
 
     const { is_premium } = useAuthStore.getState().user ?? { is_premium: false };
 
@@ -259,7 +261,9 @@ export default function AppNavigator() {
 
     if (!user?.id) return;
 
-    console.log("[AppNavigator] connectivity restored — draining queue then refreshing stores");
+    if (__DEV__) {
+      console.log("[AppNavigator] connectivity restored — draining queue then refreshing stores");
+    }
 
     // ── Queue-first reconnect ─────────────────────────────────────────────────
     // IMPORTANT: drain the offline queue BEFORE refreshing stores from the
