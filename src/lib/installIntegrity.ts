@@ -24,6 +24,11 @@ const APP_KEY_EXACT = new Set([
   "@audio_settings_v1",
 ]);
 
+type InstallIdReadResult = {
+  value: string | null;
+  status: "value" | "missing" | "error";
+};
+
 function generateInstallId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
@@ -59,14 +64,44 @@ async function resetUntrustedInstallationState(): Promise<void> {
   await SecureStore.deleteItemAsync(INSTALL_ID_SECURE_KEY).catch(() => {});
 }
 
-export async function getInstallId(): Promise<string> {
-  const asyncInstallId = await AsyncStorage.getItem(INSTALL_ID_ASYNC_KEY).catch(() => null);
-  if (asyncInstallId) return asyncInstallId;
+async function readAsyncInstallId(): Promise<InstallIdReadResult> {
+  try {
+    const value = await AsyncStorage.getItem(INSTALL_ID_ASYNC_KEY);
+    return {
+      value,
+      status: value ? "value" : "missing",
+    };
+  } catch {
+    return {
+      value: null,
+      status: "error",
+    };
+  }
+}
 
-  const secureInstallId = await SecureStore.getItemAsync(INSTALL_ID_SECURE_KEY).catch(() => null);
-  if (secureInstallId) {
-    await AsyncStorage.setItem(INSTALL_ID_ASYNC_KEY, secureInstallId).catch(() => {});
-    return secureInstallId;
+async function readSecureInstallId(): Promise<InstallIdReadResult> {
+  try {
+    const value = await SecureStore.getItemAsync(INSTALL_ID_SECURE_KEY);
+    return {
+      value,
+      status: value ? "value" : "missing",
+    };
+  } catch {
+    return {
+      value: null,
+      status: "error",
+    };
+  }
+}
+
+export async function getInstallId(): Promise<string> {
+  const asyncInstallId = await readAsyncInstallId();
+  if (asyncInstallId.value) return asyncInstallId.value;
+
+  const secureInstallId = await readSecureInstallId();
+  if (secureInstallId.value) {
+    await AsyncStorage.setItem(INSTALL_ID_ASYNC_KEY, secureInstallId.value).catch(() => {});
+    return secureInstallId.value;
   }
 
   const installId = generateInstallId();
@@ -79,15 +114,30 @@ export async function ensureInstallIntegrity(): Promise<{
   resetPerformed: boolean;
 }> {
   const [asyncInstallId, secureInstallId] = await Promise.all([
-    AsyncStorage.getItem(INSTALL_ID_ASYNC_KEY).catch(() => null),
-    SecureStore.getItemAsync(INSTALL_ID_SECURE_KEY).catch(() => null),
+    readAsyncInstallId(),
+    readSecureInstallId(),
   ]);
 
-  if (asyncInstallId && secureInstallId && asyncInstallId === secureInstallId) {
-    return { installId: asyncInstallId, resetPerformed: false };
+  if (asyncInstallId.value && secureInstallId.value && asyncInstallId.value === secureInstallId.value) {
+    return { installId: asyncInstallId.value, resetPerformed: false };
   }
 
-  if (!asyncInstallId && !secureInstallId) {
+  const readErrored =
+    asyncInstallId.status === "error" || secureInstallId.status === "error";
+
+  if (readErrored) {
+    const existingInstallId = asyncInstallId.value ?? secureInstallId.value;
+    if (existingInstallId) {
+      await writeInstallId(existingInstallId).catch(() => {});
+      return { installId: existingInstallId, resetPerformed: false };
+    }
+
+    const installId = generateInstallId();
+    await writeInstallId(installId).catch(() => {});
+    return { installId, resetPerformed: false };
+  }
+
+  if (asyncInstallId.status === "missing" && secureInstallId.status === "missing") {
     const installId = generateInstallId();
     await writeInstallId(installId);
     return { installId, resetPerformed: false };
