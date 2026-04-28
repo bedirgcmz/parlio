@@ -41,6 +41,21 @@ Bu liste release oncesi gercek cihazda auth, session, reinstall ve premium akisi
 - [ ] Grace expiry: 72 saatten eski dogrulama offline durumda premium olarak kabul edilmez.
 - [ ] Expired subscription online: RevenueCat inactive donerse premium kapatilir ve local grace temizlenir.
 
+## RevenueCat Webhook QA
+
+- [ ] Supabase Dashboard > Edge Functions altinda `revenuecat-webhook` deployed gorunur.
+- [ ] Supabase function secrets icinde `REVENUECAT_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` ve onerilen `REVENUECAT_REST_API_KEY` tanimlidir.
+- [ ] RevenueCat Dashboard > Integrations > Webhooks icinde URL `https://<project-ref>.supabase.co/functions/v1/revenuecat-webhook` olarak eklenir.
+- [ ] RevenueCat webhook Authorization header degeri Supabase `REVENUECAT_WEBHOOK_SECRET` ile aynidir. `Bearer <secret>` kullanilirsa function bunu da kabul eder.
+- [ ] RevenueCat entitlement id tam olarak `premium` adindadir; iOS/Android monthly ve annual product'lari bu entitlement'a baglidir.
+- [ ] RevenueCat test webhook 200 doner; Supabase Edge Function loglarinda event gorunur.
+- [ ] Manuel fallback activate testi: `REVENUECAT_REST_API_KEY` yokken/staging'de `INITIAL_PURCHASE` veya `TEMPORARY_ENTITLEMENT_GRANT` payload'i `entitlement_ids:["premium"]` ve Supabase user id ile gonderilir; `profiles.is_premium=true` olur.
+- [ ] Manuel fallback expire testi: `REVENUECAT_REST_API_KEY` yokken/staging'de `EXPIRATION` payload'i `entitlement_ids:["premium"]` ve ayni user id ile gonderilir; `profiles.is_premium=false` olur.
+- [ ] Live RevenueCat testi: `REVENUECAT_REST_API_KEY` varken DB yazimi payload'a degil RevenueCat subscriber durumuna gore yapilir.
+- [ ] Refund/cancellation kontrolu: RevenueCat'te abonelik aktif degilse webhook sonrasi `profiles.is_premium=false` kalir.
+- [ ] App sandbox purchase: satin alma sonrasi app aninda premium acilir, Supabase profile kisa sure icinde `true` olur.
+- [ ] App sandbox restore: uygulama sil-yukle veya yeni cihaz sonrasi restore aktif aboneligi bulur ve premium acilir.
+
 ## Account Deletion
 
 - [ ] Delete account: geri alinamaz veri silme uyarisi gorunur.
