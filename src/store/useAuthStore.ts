@@ -6,6 +6,9 @@ import { clearStoredSupabaseSession, supabase } from "../lib/supabase";
 import { getReturningWelcomeShownCount } from "@/lib/startupUx";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  cachePremiumVerification,
+  clearCachedPremiumGrace,
+  getCachedPremiumGrace,
   logInUser,
   logOutUser,
   setupCustomerInfoListener,
@@ -48,6 +51,32 @@ function isOverrideActive(profile: { premium_override?: boolean; premium_overrid
   const exp = profile.premium_override_expires_at;
   if (!exp) return true; // permanent
   return new Date(exp) > new Date();
+}
+
+async function resolveEffectivePremiumStatus(
+  userId: string,
+  profile:
+    | {
+        is_premium?: boolean;
+        premium_override?: boolean;
+        premium_override_expires_at?: string | null;
+      }
+    | null
+    | undefined,
+  rcActive: boolean,
+  rcVerified: boolean
+): Promise<{ premiumOverrideActive: boolean; isPremium: boolean }> {
+  const premiumOverrideActive = isOverrideActive(profile);
+  const graceActive = !rcVerified ? await getCachedPremiumGrace(userId) : false;
+
+  return {
+    premiumOverrideActive,
+    isPremium:
+      rcActive ||
+      premiumOverrideActive ||
+      graceActive ||
+      (!rcVerified && (profile?.is_premium ?? false)),
+  };
 }
 
 interface AuthState {
@@ -453,15 +482,20 @@ export const useAuthStore = create<AuthState>((set, get) => {
         active: false,
         verified: false,
       }));
+      const { premiumOverrideActive, isPremium } = await resolveEffectivePremiumStatus(
+        session.user.id,
+        profile,
+        rcActive,
+        rcVerified
+      );
 
       const hydratedUser: User = {
         id: session.user.id,
         email: session.user.email!,
         display_name: profile?.display_name || "",
         avatar_url: profile?.avatar_url || "",
-        premium_override: isOverrideActive(profile),
-        is_premium:
-          rcActive || isOverrideActive(profile) || (!rcVerified && (profile?.is_premium ?? false)),
+        premium_override: premiumOverrideActive,
+        is_premium: isPremium,
         leaderboard_visible: profile?.leaderboard_visible ?? true,
         created_at: session.user.created_at,
       };
@@ -535,6 +569,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
     const { active: rcActive, verified: rcVerified } = await logInUser(session.user.id).catch(
       () => ({ active: false, verified: false })
     );
+    const { premiumOverrideActive, isPremium } = await resolveEffectivePremiumStatus(
+      session.user.id,
+      profile,
+      rcActive,
+      rcVerified
+    );
 
     const installId = options?.installId ?? (await getInstallId());
     const pendingReturningWelcome = await resolvePendingReturningWelcome(
@@ -547,9 +587,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
       email: session.user.email || options?.emailOverride || "",
       display_name: displayNameOverride || profile?.display_name || "",
       avatar_url: profile?.avatar_url || "",
-      premium_override: isOverrideActive(profile),
-      is_premium:
-        rcActive || isOverrideActive(profile) || (!rcVerified && (profile?.is_premium ?? false)),
+      premium_override: premiumOverrideActive,
+      is_premium: isPremium,
       leaderboard_visible: profile?.leaderboard_visible ?? true,
       created_at: session.user.created_at,
     };
@@ -581,7 +620,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
     // still have the userId available for the key pattern.
     const currentUserId = get().user?.id;
     if (currentUserId) {
-      void clearUserCache(currentUserId);
+      await clearUserCache(currentUserId);
+      await clearCachedPremiumGrace(currentUserId);
       // Also clear the offline action queue — queue uses its own prefix so
       // clearUserCache doesn't reach it.
       //
@@ -600,7 +640,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       //     the user re-logs into the same account), handle this path separately
       //     by skipping clearAllItems() here and letting processQueue() drain on
       //     the next successful sign-in.
-    await useOfflineQueueStore.getState().clearAllItems();
+      await useOfflineQueueStore.getState().clearAllItems();
     }
 
     clearClientStores();
@@ -620,6 +660,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     lastCleanupReason = reason;
     lastCleanupAt = Date.now();
     pendingExplicitCleanupReason = null;
+    await clearStoredSupabaseSession();
     await AsyncStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
     await clearAITrialCache();
   };
@@ -642,6 +683,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     // Respect manual override — RC saying false must not revoke an explicit override grant
     const effectivePremium = active || user.premium_override;
     set({ user: { ...user, is_premium: effectivePremium }, isPremiumVerified: true });
+    void cachePremiumVerification(user.id, active);
     // Sync upgrade to Supabase via SECURITY DEFINER RPC (only on upgrade, no revoke RPC exists)
     if (active && wasNotPremium) {
       void (async () => { await supabase.rpc("set_premium"); })().catch(() => {});
@@ -742,6 +784,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           displayNameOverride: displayName,
           emailOverride: data.user?.email || credential.email || "",
         });
+      } else {
+        set({ loading: false });
+        return { success: false, error: "Could not establish session" };
       }
 
       return { success: true };
@@ -770,26 +815,25 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return { success: false, error: error?.message || "Could not get OAuth URL" };
       }
 
-      console.log("OAUTH URL:", data.url);
+      if (__DEV__) console.log("[auth] google oauth url created");
 
       const result = await WebBrowser.openAuthSessionAsync(data.url, "parlio://auth/callback");
 
-      console.log("AUTH RESULT:", result);
-      console.log("AUTH RESULT TYPE:", result.type);
+      if (__DEV__) console.log("[auth] google auth result type:", result.type);
 
       if (result.type !== "success") {
         return { success: false };
       }
 
-      console.log("CALLBACK URL:", result.url);
-
       const callbackResult = await establishSessionFromCallbackUrl(result.url);
 
-      console.log("GOOGLE CALLBACK RESULT:", {
-        duplicate: callbackResult.duplicate,
-        hasSession: !!callbackResult.session,
-        error: callbackResult.error ?? null,
-      });
+      if (__DEV__) {
+        console.log("[auth] google callback result:", {
+          duplicate: callbackResult.duplicate,
+          hasSession: !!callbackResult.session,
+          error: callbackResult.error ?? null,
+        });
+      }
 
       if (!callbackResult.session) {
         return {
@@ -798,15 +842,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
         };
       }
 
-      console.log("SIGN IN WITH GOOGLE SUCCESS PATH");
+      if (__DEV__) console.log("[auth] google sign-in success");
       await finishInteractiveSignIn(callbackResult.session);
       return { success: true };
     } catch (error) {
-      console.log("SIGN IN WITH GOOGLE CATCH:", error);
+      if (__DEV__) console.log("[auth] google sign-in error:", error);
       return { success: false, error: "An unexpected error occurred" };
     } finally {
       set({ loading: false });
-      console.log("GOOGLE LOADING FALSE");
     }
   },
 
@@ -815,7 +858,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
     // If there are offline actions waiting to be synced, warn the user before
     // destroying their data. clearAllItems() runs inside clearAuthenticatedState()
     // only after the user confirms they want to proceed.
-    const pendingCount = useOfflineQueueStore.getState().queue.length;
+    const pendingCount =
+      useOfflineQueueStore.getState().queue.length +
+      useGameStore.getState().pendingScores.length;
     if (pendingCount > 0) {
       const confirmed = await new Promise<boolean>((resolve) => {
         Alert.alert(
@@ -841,12 +886,26 @@ export const useAuthStore = create<AuthState>((set, get) => {
     set({ loading: true });
     try {
       pendingExplicitCleanupReason = "manual_signout";
-      // Remove RC listener before signing out
-      await supabase.auth.signOut();
+
+      // Prefer a server-side sign-out when available, but never trap a user in
+      // the app if the network/auth server is unavailable at the exact moment
+      // they explicitly asked to leave this device.
+      const { error: remoteSignOutError } = await supabase.auth.signOut().catch((error) => ({
+        error,
+      }));
+      if (remoteSignOutError) {
+        if (__DEV__) {
+          console.log("[auth] remote signout unavailable, continuing with local cleanup");
+        }
+        await supabase.auth.signOut({ scope: "local" }).catch((error) => {
+          if (__DEV__) console.warn("[auth] local signout fallback failed:", error);
+        });
+      }
+      await clearStoredSupabaseSession();
       console.log("[auth] manual_signout_cleanup");
       await clearAuthenticatedState("manual_signout");
       await AsyncStorage.multiRemove(["user_settings", "user_settings:guest"]);
-      await logOutUser().catch(console.error);
+      await logOutUser();
       set({
         loading: false,
       });
@@ -885,7 +944,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       console.log("[auth] delete_account_cleanup");
       await clearAuthenticatedState("delete_account");
       await AsyncStorage.multiRemove(["user_settings", "user_settings:guest"]);
-      await logOutUser().catch(console.error);
+      await logOutUser();
       set({
         loading: false,
       });
@@ -976,9 +1035,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
 
       const premiumOverrideActive = isOverrideActive(profile);
+      const graceActive = !isPremiumVerified
+        ? await getCachedPremiumGrace(user.id)
+        : false;
       const syncedPremium = isPremiumVerified
         ? user.is_premium || premiumOverrideActive
-        : user.is_premium || premiumOverrideActive || (profile?.is_premium ?? false);
+        : user.is_premium ||
+          premiumOverrideActive ||
+          graceActive ||
+          (profile?.is_premium ?? false);
 
       set((state) => ({
         user: state.user

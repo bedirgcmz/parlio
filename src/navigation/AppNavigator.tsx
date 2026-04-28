@@ -24,7 +24,6 @@ import CompleteResetPasswordScreen from "@/screens/auth/CompleteResetPasswordScr
 import i18n from "@/i18n";
 
 const Stack = createNativeStackNavigator();
-const REMEMBERED_SHELL_MIN_MS = 1400;
 const LANGUAGE_NOTICE_DELAY_MS = 900;
 
 function StartupLoadingScreen({
@@ -188,10 +187,7 @@ export default function AppNavigator() {
   const shownLanguageNoticeKey = useRef<string | null>(null);
   const scheduledLanguageNoticeKey = useRef<string | null>(null);
   const languageNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const returningWelcomeHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const returningWelcomeStartedAtRef = useRef<number | null>(null);
   const [welcomeBackToast, setWelcomeBackToast] = useState<string | null>(null);
-  const [returningWelcomeVisible, setReturningWelcomeVisible] = useState(false);
 
   // ── Auth initialisation ───────────────────────────────────────────────────
   useEffect(() => {
@@ -322,7 +318,7 @@ export default function AppNavigator() {
       scheduledLanguageNoticeKey.current = null;
       return;
     }
-    if (returningWelcomeVisible || welcomeBackToast) {
+    if (welcomeBackToast) {
       scheduledLanguageNoticeKey.current = null;
       return;
     }
@@ -382,7 +378,6 @@ export default function AppNavigator() {
   }, [
     clearPendingLanguagePreferenceNotice,
     pendingLanguagePreferenceNotice,
-    returningWelcomeVisible,
     settingsLoading,
     settingsReadyForCurrentUser,
     t,
@@ -406,46 +401,18 @@ export default function AppNavigator() {
   const waitingOnAppReady = !initialized || !settingsReadyForCurrentUser || settingsLoading;
 
   useEffect(() => {
-    if (returningWelcomeHideTimerRef.current) {
-      clearTimeout(returningWelcomeHideTimerRef.current);
-      returningWelcomeHideTimerRef.current = null;
-    }
-
     if (!activeReturningWelcome) {
-      returningWelcomeStartedAtRef.current = null;
-      setReturningWelcomeVisible(false);
       return;
     }
-
-    if (returningWelcomeStartedAtRef.current == null) {
-      returningWelcomeStartedAtRef.current = Date.now();
-    }
-
-    setReturningWelcomeVisible(true);
 
     if (waitingOnAppReady) {
       return;
     }
 
-    const elapsed = Date.now() - returningWelcomeStartedAtRef.current;
-    const remaining = Math.max(0, REMEMBERED_SHELL_MIN_MS - elapsed);
-
     const { userId, signInCount } = activeReturningWelcome;
-
-    returningWelcomeHideTimerRef.current = setTimeout(() => {
-      returningWelcomeStartedAtRef.current = null;
-      setReturningWelcomeVisible(false);
-      consumePendingReturningWelcome();
-      setWelcomeBackToast(t("onboarding.welcome_back_toast"));
-      void setReturningWelcomeShownCount(userId, signInCount);
-    }, remaining);
-
-    return () => {
-      if (returningWelcomeHideTimerRef.current) {
-        clearTimeout(returningWelcomeHideTimerRef.current);
-        returningWelcomeHideTimerRef.current = null;
-      }
-    };
+    consumePendingReturningWelcome();
+    setWelcomeBackToast(t("onboarding.welcome_back_toast"));
+    void setReturningWelcomeShownCount(userId, signInCount);
   }, [
     activeReturningWelcome,
     consumePendingReturningWelcome,
@@ -454,15 +421,6 @@ export default function AppNavigator() {
   ]);
 
   // Show loading while initialising
-  if (returningWelcomeVisible) {
-    return (
-      <StartupLoadingScreen
-        title={t("onboarding.remembered_title")}
-        body={t("onboarding.remembered_body")}
-      />
-    );
-  }
-
   if (!initialized || !settingsReadyForCurrentUser || settingsLoading) {
     return (
       <StartupLoadingScreen

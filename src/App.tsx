@@ -120,7 +120,11 @@ export default function App() {
     const handleAuthCallback = async (url: string) => {
       if (!isAuthCallbackUrl(url)) return;
 
-      console.log("HANDLE AUTH URL:", url);
+      if (__DEV__) {
+        console.log("[auth] handle callback url", {
+          resetPassword: url.includes("auth/reset-password"),
+        });
+      }
 
       const result = await establishSessionFromCallbackUrl(url);
 

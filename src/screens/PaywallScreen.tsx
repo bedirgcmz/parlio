@@ -31,6 +31,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import type { MainStackParamList, PaywallSource } from "@/types";
 import {
   getOfferings,
+  logInUser,
   purchasePackage,
   restorePurchases,
 } from "@/services/revenueCat";
@@ -135,9 +136,20 @@ export default function PaywallScreen() {
     loadOfferings();
   }, []);
 
+  async function ensureRevenueCatReady() {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+
+    const result = await logInUser(userId).catch(() => null);
+    if (result?.verified) {
+      setPremiumStatus(result.active);
+    }
+  }
+
   async function loadOfferings() {
     setLoading(true);
     try {
+      await ensureRevenueCatReady();
       const result = await getOfferings();
       if (!result.current) {
         setOfferingsMessageKey(
@@ -203,6 +215,7 @@ export default function PaywallScreen() {
     }
     setRestoring(true);
     try {
+      await ensureRevenueCatReady();
       const result = await restorePurchases();
       if (result.isPremium) {
         setPremiumStatus(true);

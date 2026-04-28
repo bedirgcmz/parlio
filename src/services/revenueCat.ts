@@ -6,6 +6,7 @@ import Purchases, {
 } from "react-native-purchases";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Expo Go'da RevenueCat native store yoktur
 const isExpoGo = Constants.executionEnvironment === "storeClient";
@@ -17,6 +18,8 @@ const API_KEYS = {
 
 // RevenueCat'te tanımladığın entitlement adı
 export const ENTITLEMENT_PREMIUM = "premium";
+const PREMIUM_GRACE_MS = 72 * 60 * 60 * 1000;
+const PREMIUM_GRACE_KEY_PREFIX = "@parlio/premium_grace_v1";
 
 // Offering içindeki package identifier'lar (RevenueCat dashboard'da tanımlanır)
 export const PACKAGE_IDS = {
@@ -30,6 +33,62 @@ export type OfferingsLoadResult = {
   reason: "ok" | "expo_go" | "not_configured" | "no_current_offering" | "error";
   error?: string;
 };
+
+type PremiumGraceRecord = {
+  active: boolean;
+  verifiedAt: number;
+};
+
+function premiumGraceKey(userId: string) {
+  return `${PREMIUM_GRACE_KEY_PREFIX}:${userId}`;
+}
+
+export async function cachePremiumVerification(
+  userId: string,
+  active: boolean
+): Promise<void> {
+  try {
+    if (!active) {
+      await AsyncStorage.removeItem(premiumGraceKey(userId));
+      return;
+    }
+
+    const record: PremiumGraceRecord = {
+      active: true,
+      verifiedAt: Date.now(),
+    };
+    await AsyncStorage.setItem(premiumGraceKey(userId), JSON.stringify(record));
+  } catch {
+    // Non-fatal: premium access will still be resolved from live RC/profile data.
+  }
+}
+
+export async function getCachedPremiumGrace(userId: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(premiumGraceKey(userId));
+    if (!raw) return false;
+
+    const record = JSON.parse(raw) as Partial<PremiumGraceRecord>;
+    if (!record.active || typeof record.verifiedAt !== "number") {
+      await AsyncStorage.removeItem(premiumGraceKey(userId)).catch(() => {});
+      return false;
+    }
+
+    const isFresh = Date.now() - record.verifiedAt <= PREMIUM_GRACE_MS;
+    if (!isFresh) {
+      await AsyncStorage.removeItem(premiumGraceKey(userId)).catch(() => {});
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function clearCachedPremiumGrace(userId: string): Promise<void> {
+  await AsyncStorage.removeItem(premiumGraceKey(userId)).catch(() => {});
+}
 
 export async function initRevenueCat(userId?: string): Promise<void> {
   if (isExpoGo) return;
@@ -71,13 +130,30 @@ export async function logInUser(userId: string): Promise<PremiumCheckResult> {
 
   const { customerInfo } = await Purchases.logIn(userId);
   const active = customerInfo.entitlements.active[ENTITLEMENT_PREMIUM] !== undefined;
+  await cachePremiumVerification(userId, active);
   return { active, verified: true };
 }
 
 export async function logOutUser(): Promise<void> {
   if (isExpoGo) return;
   if (!(await Purchases.isConfigured())) return;
-  await Purchases.logOut();
+
+  try {
+    await Purchases.logOut();
+  } catch (error) {
+    const err = asRCError(error);
+    const message = err.message?.toLowerCase() ?? "";
+    const code = String((error as { code?: unknown } | null)?.code ?? "");
+    const isOffline =
+      code === "35" ||
+      message.includes("offline") ||
+      message.includes("internet connection") ||
+      message.includes("network");
+
+    if (__DEV__ && !isOffline) {
+      console.warn("[revenueCat] logout sync failed:", error);
+    }
+  }
 }
 
 export async function getCustomerInfo(): Promise<CustomerInfo | null> {
