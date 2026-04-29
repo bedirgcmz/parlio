@@ -41,6 +41,15 @@ Bu liste release oncesi gercek cihazda auth, session, reinstall ve premium akisi
 - [ ] Grace expiry: 72 saatten eski dogrulama offline durumda premium olarak kabul edilmez.
 - [ ] Expired subscription online: RevenueCat inactive donerse premium kapatilir ve local grace temizlenir.
 
+## Quiz ve Build Daily Limit
+
+- [ ] Free quiz online: 5 ana quiz cevabindan sonra limit banner'i gorunur; retry turu gunluk limiti arttirmaz.
+- [ ] Free build online: 5 build cevabindan sonra limit wall gorunur.
+- [ ] Offline snapshot var: kullanici sadece son server snapshot'inda kalan hak kadar quiz/build kullanabilir.
+- [ ] Offline snapshot yok: free kullanici quiz/build icin internet gerekli mesaji gorur, hak uydurulmaz.
+- [ ] Reconnect queue replay: offline quiz/build sonuclari RPC ile sync olur; server limit asimi varsa fazla item DB'ye yazilmaz.
+- [ ] Premium kullanici: quiz/build daily limit uygulanmaz; online/offline premium state dogruysa pratik devam eder.
+
 ## RevenueCat Webhook QA
 
 - [ ] Supabase Dashboard > Edge Functions altinda `revenuecat-webhook` deployed gorunur.

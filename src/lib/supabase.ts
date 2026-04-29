@@ -165,28 +165,31 @@ export type Database = {
           id: number;
           user_id: string;
           sentence_id: string | null;
-          user_sentence_id: number | null;
+          user_sentence_id: string | null;
           is_correct: boolean;
-          quiz_type: "multiple_choice" | "fill_blank";
+          quiz_type: "multiple_choice" | "fill_blank" | "build_sentence";
           answered_at: string;
+          client_event_id: string | null;
         };
         Insert: {
           id?: number;
           user_id: string;
           sentence_id?: string | null;
-          user_sentence_id?: number | null;
+          user_sentence_id?: string | null;
           is_correct: boolean;
-          quiz_type: "multiple_choice" | "fill_blank";
+          quiz_type: "multiple_choice" | "fill_blank" | "build_sentence";
           answered_at?: string;
+          client_event_id?: string | null;
         };
         Update: {
           id?: number;
           user_id?: string;
           sentence_id?: string | null;
-          user_sentence_id?: number | null;
+          user_sentence_id?: string | null;
           is_correct?: boolean;
-          quiz_type?: "multiple_choice" | "fill_blank";
+          quiz_type?: "multiple_choice" | "fill_blank" | "build_sentence";
           answered_at?: string;
+          client_event_id?: string | null;
         };
       };
       dialog_categories: {

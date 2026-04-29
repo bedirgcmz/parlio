@@ -61,7 +61,7 @@ export interface QuizResult {
   id: string;
   user_id: string;
   sentence_id: string | null;
-  user_sentence_id?: number | null;
+  user_sentence_id?: string | null;
   is_correct: boolean;
   quiz_type: "multiple_choice" | "fill_blank" | "build_sentence";
   answered_at: string;

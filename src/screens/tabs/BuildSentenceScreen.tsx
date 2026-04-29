@@ -20,7 +20,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTranslation } from "react-i18next";
@@ -40,9 +40,13 @@ import { stripMarkers } from "@/utils/keywords";
 import { VisualBadge } from "@/components/VisualBadge";
 import { QUIZ_CORRECT_COLOR, QUIZ_WRONG_COLOR, FREE_BUILD_SENTENCE_DAILY_LIMIT } from "@/utils/constants";
 import * as Haptics from "expo-haptics";
-import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useNetworkStore } from "@/store/useNetworkStore";
 import { useAchievementStore } from "@/store/useAchievementStore";
+import {
+  loadQuizDailyLimitStatus,
+  type QuizDailyLimitStatus,
+} from "@/services/quizLimits";
 
 type Nav = CompositeNavigationProp<
   NativeStackNavigationProp<HomeStackParamList>,
@@ -289,14 +293,15 @@ export default function BuildSentenceScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const navigation = useNavigation<Nav>();
-  const isFocused = useIsFocused();
   const { height: screenHeight } = useWindowDimensions();
   const isSmallScreen = screenHeight < 700;
 
   const { sentences, presetSentences, loadSentences, loadPresetSentences } = useSentenceStore();
   const { progressMap, loadProgress, recordQuizResult } = useProgressStore();
   const { targetLanguage, uiLanguage } = useSettingsStore();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const isPremium = useAuthStore((s) => s.user?.is_premium ?? false);
+  const reconnectCount = useNetworkStore((s) => s.reconnectCount);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [initialized, setInitialized] = useState(false);
@@ -323,7 +328,9 @@ export default function BuildSentenceScreen() {
   // Daily limit
   const [dailyCount, setDailyCount] = useState(0);
   const [dailyCountLoaded, setDailyCountLoaded] = useState(false);
-  const dailyLimitReached = !isPremium && dailyCount >= FREE_BUILD_SENTENCE_DAILY_LIMIT;
+  const [dailyLimitOfflineBlocked, setDailyLimitOfflineBlocked] = useState(false);
+  const dailyLimitReached =
+    !isPremium && (dailyLimitOfflineBlocked || dailyCount >= FREE_BUILD_SENTENCE_DAILY_LIMIT);
 
   // Learning list — stored in state so updating it triggers a re-render and
   // allows the word-chip effect ([currentSentence?.id]) to fire correctly.
@@ -337,22 +344,42 @@ export default function BuildSentenceScreen() {
   }, [targetLanguage, uiLanguage, isPremium]);
 
   useEffect(() => {
-    const loadTodayCount = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setDailyCountLoaded(true); return; }
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const { count } = await supabase
-        .from("quiz_results")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("quiz_type", "build_sentence")
-        .gte("answered_at", todayStart.toISOString());
-      setDailyCount(count ?? 0);
+    let cancelled = false;
+
+    const loadDailyLimit = async () => {
+      setDailyCountLoaded(false);
+      setDailyLimitOfflineBlocked(false);
+
+      if (!userId) {
+        setDailyCountLoaded(true);
+        return;
+      }
+
+      const result = await loadQuizDailyLimitStatus(userId, "build_sentence");
+      if (cancelled) return;
+
+      if (result.status) {
+        setDailyCount(result.status.usedCount);
+        setDailyLimitOfflineBlocked(false);
+      } else {
+        setDailyCount(0);
+        setDailyLimitOfflineBlocked(!isPremium);
+      }
+
       setDailyCountLoaded(true);
     };
-    loadTodayCount();
-  }, []);
+
+    void loadDailyLimit();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isPremium, reconnectCount]);
+
+  const applyLimitStatus = (status: QuizDailyLimitStatus | null | undefined) => {
+    if (!status) return;
+    setDailyCount(status.usedCount);
+    setDailyLimitOfflineBlocked(false);
+  };
 
   // Build & shuffle the learning list once after data loads.
   // Read directly from Zustand store state to avoid stale-closure race between
@@ -495,16 +522,22 @@ export default function BuildSentenceScreen() {
     const newTotal = score.total + 1;
     const newCorrect = score.correct + (isCorrect ? 1 : 0);
     setScore({ correct: newCorrect, total: newTotal });
-    setDailyCount((c) => c + 1);
+    setDailyCount((count) => count + 1);
 
     // Persist to quiz_results for stats & daily limit tracking
     if (currentSentence) {
-      recordQuizResult({
+      void recordQuizResult({
         user_id: "",
         sentence_id: currentSentence.is_preset ? currentSentence.id : null,
-        user_sentence_id: currentSentence.is_preset ? null : Number(currentSentence.id),
+        user_sentence_id: currentSentence.is_preset ? null : currentSentence.id,
         is_correct: isCorrect,
         quiz_type: "build_sentence",
+        bypassDailyLimit: isPremium,
+      }).then((result) => {
+        applyLimitStatus(result.status);
+        if (result.missingSnapshot) {
+          setDailyLimitOfflineBlocked(true);
+        }
       });
     }
 
@@ -515,7 +548,7 @@ export default function BuildSentenceScreen() {
       totalQuizQuestions: 0,
       totalBuildSentences: dailyCount + 1, // approximate; loadStats has exact total
     });
-  }, [dropZone, correctOrder, dailyLimitReached, currentSentence, recordQuizResult, score, dailyCount]);
+  }, [dropZone, correctOrder, dailyLimitReached, currentSentence, recordQuizResult, score, dailyCount, isPremium]);
 
   const handleGoNext = useCallback(() => {
     const nextIndex = currentIndex + 1;
@@ -608,18 +641,20 @@ export default function BuildSentenceScreen() {
         <View style={styles.center}>
           <Text style={[styles.completeEmoji, isSmallScreen && { fontSize: 40, marginBottom: 4 }]}>⏳</Text>
           <Text style={[styles.completeTitle, isSmallScreen && { fontSize: 18, marginBottom: 4 }, { color: colors.text }]}>
-            {t("build_sentence.limit_title")}
+            {dailyLimitOfflineBlocked ? t("common.offline_title") : t("build_sentence.limit_title")}
           </Text>
           <Text style={[styles.limitDesc, isSmallScreen && { paddingHorizontal: 20, marginBottom: 16 }, { color: colors.textSecondary }]}>
-            {t("build_sentence.limit_desc")}
+            {dailyLimitOfflineBlocked ? t("common.offline_body") : t("build_sentence.limit_desc")}
           </Text>
-          <TouchableOpacity
-            style={[styles.primaryBtn, styles.premiumBtn]}
-            onPress={() => navigation.navigate("Paywall", { source: "quiz" })}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryBtnText}>✨ Premium</Text>
-          </TouchableOpacity>
+          {!dailyLimitOfflineBlocked && (
+            <TouchableOpacity
+              style={[styles.primaryBtn, styles.premiumBtn]}
+              onPress={() => navigation.navigate("Paywall", { source: "quiz" })}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryBtnText}>✨ Premium</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </SafeAreaView>
     );

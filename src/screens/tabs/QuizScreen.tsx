@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import {
   View,
   Text,
@@ -24,6 +23,7 @@ import { useSentenceStore } from "@/store/useSentenceStore";
 import { useProgressStore } from "@/store/useProgressStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useNetworkStore } from "@/store/useNetworkStore";
 import { parseKeywords, getKeywordColor, splitWords, stripMarkers } from "@/utils/keywords";
 import { KeywordText } from "@/components/KeywordText";
 import { FavoriteButton } from "@/components/FavoriteButton";
@@ -44,6 +44,10 @@ import { speak, stopSpeaking } from "@/services/tts";
 import { useAchievementStore } from "@/store/useAchievementStore";
 import { HintBottomSheet } from "@/components/HintBottomSheet";
 import { useOnboarding } from "@/providers/OnboardingProvider";
+import {
+  loadQuizDailyLimitStatus,
+  type QuizDailyLimitStatus,
+} from "@/services/quizLimits";
 
 type QuizMode = "multiple_choice" | "fill_blank";
 
@@ -139,7 +143,9 @@ export default function QuizScreen() {
   const { sentences, presetSentences, loadSentences, loadPresetSentences } = useSentenceStore();
   const { progressMap, loadProgress, recordQuizResult } = useProgressStore();
   const { uiLanguage, targetLanguage, ttsEnabled } = useSettingsStore();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const isPremium = useAuthStore((s) => s.user?.is_premium ?? false);
+  const reconnectCount = useNetworkStore((s) => s.reconnectCount);
   const isFocused = useIsFocused();
 
   const [mode, setMode] = useState<QuizMode>(
@@ -155,6 +161,8 @@ export default function QuizScreen() {
   const [showHint, setShowHint] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [dailyCount, setDailyCount] = useState(0);
+  const [dailyLimitLoaded, setDailyLimitLoaded] = useState(false);
+  const [dailyLimitOfflineBlocked, setDailyLimitOfflineBlocked] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [wrongQuestions, setWrongQuestions] = useState<Question[]>([]);
   const [isRetryPhase, setIsRetryPhase] = useState(false);
@@ -219,30 +227,39 @@ export default function QuizScreen() {
   const kwInputRefs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
-    const loadTodayCount = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
+    let cancelled = false;
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+    const loadDailyLimit = async () => {
+      if (!isFocused) return;
 
-      const { count } = await supabase
-        .from("quiz_results")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .in("quiz_type", ["multiple_choice", "fill_blank"])
-        .gte("answered_at", todayStart.toISOString());
+      setDailyLimitLoaded(false);
+      setDailyLimitOfflineBlocked(false);
 
-      setDailyCount(count ?? 0);
+      if (!userId) {
+        setDailyLimitLoaded(true);
+        return;
+      }
+
+      const result = await loadQuizDailyLimitStatus(userId, "quiz");
+      if (cancelled) return;
+
+      if (result.status) {
+        setDailyCount(result.status.usedCount);
+        setDailyLimitOfflineBlocked(false);
+      } else {
+        setDailyCount(0);
+        setDailyLimitOfflineBlocked(!isPremium);
+      }
+
+      setDailyLimitLoaded(true);
     };
 
-    loadTodayCount();
+    void loadDailyLimit();
     return () => {
+      cancelled = true;
       if (nextTimerRef.current) clearTimeout(nextTimerRef.current);
     };
-  }, []);
+  }, [userId, isPremium, reconnectCount, isFocused]);
 
   useEffect(() => {
     setInitialized(false);
@@ -296,7 +313,14 @@ export default function QuizScreen() {
   const filteredLearningSentences = learningSentences;
 
   const sessionSize = isPremium ? 20 : FREE_QUIZ_DAILY_LIMIT;
-  const dailyLimitReached = !isPremium && dailyCount >= FREE_QUIZ_DAILY_LIMIT;
+  const dailyLimitReached =
+    !isPremium && (dailyLimitOfflineBlocked || dailyCount >= FREE_QUIZ_DAILY_LIMIT);
+
+  const applyLimitStatus = (status: QuizDailyLimitStatus | null | undefined) => {
+    if (!status) return;
+    setDailyCount(status.usedCount);
+    setDailyLimitOfflineBlocked(false);
+  };
 
   const startSession = () => {
     if (nextTimerRef.current) clearTimeout(nextTimerRef.current);
@@ -362,19 +386,25 @@ export default function QuizScreen() {
     }
     // Daily limit and persistence only apply to the main session, not the retry round
     if (!isRetryPhase) {
-      setDailyCount((c) => c + 1);
-      recordQuizResult({
+      setDailyCount((count) => count + 1);
+      void recordQuizResult({
         user_id: "",
         sentence_id: currentQ.sentence.is_preset ? currentQ.sentence.id : null,
-        user_sentence_id: currentQ.sentence.is_preset ? null : Number(currentQ.sentence.id),
+        user_sentence_id: currentQ.sentence.is_preset ? null : currentQ.sentence.id,
         is_correct: correct,
         quiz_type: currentQ.type,
+        bypassDailyLimit: isPremium,
+      }).then((result) => {
+        applyLimitStatus(result.status);
+        if (result.missingSnapshot) {
+          setDailyLimitOfflineBlocked(true);
+        }
       });
     }
   };
 
   const handleMCAnswer = (answer: string) => {
-    if (showResult) return;
+    if (showResult || dailyLimitReached) return;
     setSelectedOption(answer);
     commitAnswer(answer === (currentQ as MCQuestion).correctAnswer);
   };
@@ -416,7 +446,7 @@ export default function QuizScreen() {
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────
-  if (!initialized) {
+  if (!initialized || !dailyLimitLoaded) {
     return (
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.background }]}
@@ -666,15 +696,17 @@ export default function QuizScreen() {
             ]}
           >
             <Text style={[styles.limitText, { color: colors.warning }]}>
-              {t("quiz.daily_limit_reached")}
+              {dailyLimitOfflineBlocked ? t("common.offline_body") : t("quiz.daily_limit_reached")}
             </Text>
-            <TouchableOpacity
-              style={[styles.upgradeBannerBtn, { backgroundColor: colors.warning }]}
-              onPress={() => navigation.navigate("Paywall", { source: "quiz" })}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.upgradeBannerBtnText}>{t("premium.title")} →</Text>
-            </TouchableOpacity>
+            {!dailyLimitOfflineBlocked && (
+              <TouchableOpacity
+                style={[styles.upgradeBannerBtn, { backgroundColor: colors.warning }]}
+                onPress={() => navigation.navigate("Paywall", { source: "quiz" })}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.upgradeBannerBtnText}>{t("premium.title")} →</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 

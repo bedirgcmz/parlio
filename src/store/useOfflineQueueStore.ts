@@ -35,6 +35,10 @@ import {
   clearQueue,
   type OfflineQueueItemType,
 } from "@/lib/offlineQueue";
+import {
+  recordQuizResultOnServer,
+  type QuizResultType,
+} from "@/services/quizLimits";
 
 // ── Error classification ──────────────────────────────────────────────────────
 
@@ -57,6 +61,12 @@ function isPermanentError(error: { status?: number; code?: string } | null | und
   if (code === "42501") return true; // insufficient_privilege
   if (code === "PGRST301") return true; // JWT expired
   return false;
+}
+
+function toNullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 // ── Item processor ────────────────────────────────────────────────────────────
@@ -138,26 +148,27 @@ async function processItem(
 
       case "quiz_result": {
         const p = item.payload as {
-          sentenceId: string | null;
-          userSentenceId: number | null;
+          sentenceId: string | number | null;
+          userSentenceId: string | null;
           isCorrect: boolean;
-          quizType: string;
+          quizType: QuizResultType;
           answeredAt: string;
         };
-        const { error } = await supabase.from("quiz_results").insert({
-          user_id: userId,
-          sentence_id: p.sentenceId,
-          user_sentence_id: p.userSentenceId,
-          is_correct: p.isCorrect,
-          quiz_type: p.quizType,
-          answered_at: p.answeredAt,
-          client_event_id: item.clientEventId ?? null,
+        const result = await recordQuizResultOnServer({
+          userId,
+          sentenceId: toNullableInteger(p.sentenceId),
+          userSentenceId: p.userSentenceId,
+          isCorrect: p.isCorrect,
+          quizType: p.quizType,
+          answeredAt: p.answeredAt,
+          clientEventId: item.clientEventId ?? item.id,
         });
-        // 23505 = unique violation on client_event_id — already inserted, idempotent
-        if (error && error.code !== "23505") {
-          return { success: false, permanent: isPermanentError(error) };
+
+        if (result.success || result.limitReached) {
+          return { success: true, permanent: false };
         }
-        return { success: true, permanent: false };
+
+        return { success: false, permanent: false };
       }
 
       case "study_session": {

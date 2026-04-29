@@ -6,6 +6,12 @@ import { readCache, writeCache } from "@/lib/offlineCache";
 import { useOfflineQueueStore, createQueueItem } from "./useOfflineQueueStore";
 import { generateQueueId } from "@/lib/offlineQueue";
 import { useNetworkStore } from "./useNetworkStore";
+import {
+  consumeOfflineQuizLimit,
+  recordQuizResultOnServer,
+  type QuizDailyLimitStatus,
+  type QuizResultType,
+} from "@/services/quizLimits";
 
 // TODO: daily_stats tablosuna yazma — şu an streak user_progress.learned_at'tan hesaplanıyor.
 // daily_stats tablosu şu an kullanılmıyor; gerekirse her öğrenme/quiz sonrası güncellenebilir.
@@ -30,6 +36,19 @@ interface ProgressStats {
   userLearnedDates: string[];
 }
 
+export interface QuizRecordOutcome {
+  success: boolean;
+  queued?: boolean;
+  limitReached?: boolean;
+  missingSnapshot?: boolean;
+  status?: QuizDailyLimitStatus | null;
+  error?: string;
+}
+
+type RecordQuizResultInput = Omit<QuizResult, "id" | "answered_at"> & {
+  bypassDailyLimit?: boolean;
+};
+
 interface ProgressState {
   progress: UserProgress[];
   progressMap: Record<string, "learning" | "learned">;
@@ -45,7 +64,7 @@ interface ProgressState {
   forgot: (sentenceId: string) => Promise<void>;
   // Legacy quiz tracking
   recordStudySession: (session: Omit<StudySession, "id" | "created_at">) => Promise<void>;
-  recordQuizResult: (result: Omit<QuizResult, "id" | "answered_at">) => Promise<void>;
+  recordQuizResult: (result: RecordQuizResultInput) => Promise<QuizRecordOutcome>;
   getTodayProgress: () => UserProgress[];
   getWeekProgress: () => UserProgress[];
   getMonthProgress: () => UserProgress[];
@@ -83,6 +102,50 @@ function cacheKeyProgress(userId: string) {
   return `progress:${userId}`;
 }
 
+function toNullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function applyPendingProgressQueue(
+  progressMap: Record<string, "learning" | "learned">
+): Record<string, "learning" | "learned"> {
+  const queue = useOfflineQueueStore.getState().queue;
+  if (queue.length === 0) return progressMap;
+
+  let merged = progressMap;
+  const ensureMutable = () => {
+    if (merged === progressMap) merged = { ...progressMap };
+    return merged;
+  };
+
+  for (const item of queue) {
+    if (
+      item.type !== "progress_add_learning" &&
+      item.type !== "progress_mark_learned" &&
+      item.type !== "progress_forgot"
+    ) {
+      continue;
+    }
+
+    const sentenceId = (item.payload as { sentenceId?: unknown }).sentenceId;
+    if (sentenceId === null || sentenceId === undefined || sentenceId === "") continue;
+    const key = String(sentenceId);
+    const next = ensureMutable();
+
+    if (item.type === "progress_add_learning") {
+      next[key] = "learning";
+    } else if (item.type === "progress_mark_learned") {
+      next[key] = "learned";
+    } else {
+      delete next[key];
+    }
+  }
+
+  return merged;
+}
+
 export const useProgressStore = create<ProgressState>((set, get) => ({
   progress: [],
   progressMap: {},
@@ -103,9 +166,10 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
       // 1. Hydrate from cache immediately — no spinner if we have cached data
       const cached = await readCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id));
       if (cached) {
+        const progressMap = applyPendingProgressQueue(cached.progressMap);
         set({
           progress: cached.progress,
-          progressMap: cached.progressMap,
+          progressMap,
           stats: cached.stats,
         });
         // Continue to background network refresh below
@@ -135,13 +199,15 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
         }
       }
 
-      set({ progress: data || [], progressMap, loading: false });
+      const mergedProgressMap = applyPendingProgressQueue(progressMap);
+
+      set({ progress: data || [], progressMap: mergedProgressMap, loading: false });
       await get().loadStats();
 
       // 3. Persist the fresh snapshot to cache
       void writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
         progress: data || [],
-        progressMap,
+        progressMap: mergedProgressMap,
         stats: get().stats,
       });
     } catch {
@@ -161,7 +227,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
     if (!user) return;
 
     // 2. Write to cache immediately (before network) so offline reads are correct
-    void writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
+    await writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
       progress: get().progress,
       progressMap: get().progressMap,
       stats: get().stats,
@@ -183,7 +249,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
     }
 
     // Offline or remote failed → enqueue
-    void useOfflineQueueStore.getState().addItem(
+    await useOfflineQueueStore.getState().addItem(
       createQueueItem("progress_add_learning", { sentenceId }, { dedupeKey: `progress:${sentenceId}` })
     );
   },
@@ -201,7 +267,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
 
     // 2. Write to cache immediately — prevents loadProgress() or any other
     //    cache reader from seeing stale pre-optimistic state.
-    void writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
+    await writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
       progress: get().progress,
       progressMap: get().progressMap,
       stats: get().stats,
@@ -234,7 +300,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
     }
 
     // Offline or remote failed → enqueue
-    void useOfflineQueueStore.getState().addItem(
+    await useOfflineQueueStore.getState().addItem(
       createQueueItem("progress_mark_learned", { sentenceId }, { dedupeKey: `progress:${sentenceId}` })
     );
   },
@@ -252,7 +318,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
     if (!user) return;
 
     // 2. Write to cache immediately
-    void writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
+    await writeCache<ProgressCacheSnapshot>(cacheKeyProgress(user.id), {
       progress: get().progress,
       progressMap: get().progressMap,
       stats: get().stats,
@@ -269,7 +335,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
       if (!error) return;
     }
 
-    void useOfflineQueueStore.getState().addItem(
+    await useOfflineQueueStore.getState().addItem(
       createQueueItem("progress_forgot", { sentenceId }, { dedupeKey: `progress:${sentenceId}` })
     );
   },
@@ -492,50 +558,86 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
   recordQuizResult: async (result) => {
     const { data: { session: authSession } } = await supabase.auth.getSession();
     const user = authSession?.user ?? null;
-    if (!user) return;
-
-    // Achievement check fires immediately against current stats (optimistic)
-    const { stats } = get();
-    void useAchievementStore.getState().checkProgressAchievements({
-      totalSentencesLearned: stats.totalSentencesLearned,
-      currentStreak: stats.currentStreak,
-      totalQuizQuestions: stats.totalQuizQuestions,
-      totalBuildSentences: stats.totalBuildSentences,
-    });
+    if (!user) return { success: false, error: "No user logged in" };
 
     // Generate clientEventId for idempotent replay on reconnect
     const clientEventId = generateQueueId();
     const answeredAt = new Date().toISOString();
-    const sentenceId = result.user_sentence_id ? null : result.sentence_id;
+    const quizType = result.quiz_type as QuizResultType;
+    const sentenceId = result.user_sentence_id ? null : toNullableInteger(result.sentence_id);
+    const userSentenceId = result.user_sentence_id ?? null;
+    const bypassDailyLimit = result.bypassDailyLimit === true;
+
+    const checkAchievements = () => {
+      const { stats } = get();
+      void useAchievementStore.getState().checkProgressAchievements({
+        totalSentencesLearned: stats.totalSentencesLearned,
+        currentStreak: stats.currentStreak,
+        totalQuizQuestions: stats.totalQuizQuestions,
+        totalBuildSentences: stats.totalBuildSentences,
+      });
+    };
 
     const isOnline = useNetworkStore.getState().isOnline;
     if (isOnline) {
-      const { error } = await supabase
-        .from("quiz_results")
-        .insert({
-          user_id: user.id,
-          sentence_id: sentenceId,
-          user_sentence_id: result.user_sentence_id ?? null,
-          is_correct: result.is_correct,
-          quiz_type: result.quiz_type,
-          answered_at: answeredAt,
-          client_event_id: clientEventId,
-        });
-      if (!error) return; // success — nothing to queue
+      const serverResult = await recordQuizResultOnServer({
+        userId: user.id,
+        sentenceId,
+        userSentenceId,
+        isCorrect: result.is_correct,
+        quizType,
+        answeredAt,
+        clientEventId,
+      });
+
+      if (serverResult.success) {
+        checkAchievements();
+        return {
+          success: true,
+          limitReached: false,
+          status: serverResult.status,
+        };
+      }
+
+      if (serverResult.limitReached) {
+        return {
+          success: false,
+          limitReached: true,
+          status: serverResult.status,
+        };
+      }
     }
 
     // Offline or remote failed → enqueue.
+    const consumeResult = await consumeOfflineQuizLimit(user.id, quizType, bypassDailyLimit);
+    if (!consumeResult.allowed) {
+      return {
+        success: false,
+        limitReached: true,
+        missingSnapshot: consumeResult.reason === "missing_snapshot",
+        status: consumeResult.status,
+      };
+    }
+
+    checkAchievements();
+
     // loadStats() is NOT called here — aggregate stats refresh happens in
     // AppNavigator's batch refresh after queue drain on reconnect.
-    void useOfflineQueueStore.getState().addItem(
+    await useOfflineQueueStore.getState().addItem(
       createQueueItem("quiz_result", {
         sentenceId,
-        userSentenceId: result.user_sentence_id ?? null,
+        userSentenceId,
         isCorrect: result.is_correct,
-        quizType: result.quiz_type,
+        quizType,
         answeredAt,
       }, { clientEventId })
     );
+    return {
+      success: true,
+      queued: true,
+      limitReached: false,
+      status: consumeResult.status,
+    };
   },
 
   getTodayProgress: () => {
