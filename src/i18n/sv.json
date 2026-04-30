@@ -301,6 +301,16 @@
     "send_feedback": "Skicka feedback",
     "rate_app": "Betygsätt appen"
   },
+  "notification_permission": {
+    "title": "Vill du ha en mjuk påminnelse?",
+    "body": "Parlio kan påminna dig lugnt så att dagens övning inte faller bort. Du kan ändra tiden när som helst i Inställningar.",
+    "primary": "Aktivera notifikationer",
+    "secondary": "Inte nu",
+    "enabled_title": "Notifikationer är på",
+    "enabled_body": "Klart. Du kan ändra dagliga påminnelser när som helst under Inställningar > Notifikationer.",
+    "denied_title": "Notifikationer är av",
+    "denied_body": "Ingen fara. Om du ändrar dig kan du försöka igen från Parlios inställningar."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Ditt dagliga Parlio-pass är redo",

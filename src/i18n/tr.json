@@ -301,6 +301,16 @@
     "send_feedback": "Öneri / Şikayet Gönder",
     "rate_app": "Uygulamayı Değerlendirin"
   },
+  "notification_permission": {
+    "title": "Küçük bir hatırlatma ister misin?",
+    "body": "Parlio seni rahatsız etmeden, günlük pratiğini kaçırmaman için nazikçe hatırlatabilir. Saatini Ayarlar’dan istediğin zaman değiştirebilirsin.",
+    "primary": "Bildirimleri Aç",
+    "secondary": "Şimdi Değil",
+    "enabled_title": "Bildirimler açık",
+    "enabled_body": "Tamamdır. Günlük hatırlatmaları Ayarlar > Bildirimler bölümünden istediğin zaman düzenleyebilirsin.",
+    "denied_title": "Bildirimler kapalı",
+    "denied_body": "Sorun değil. Fikrini değiştirirsen Parlio Ayarlar bölümünden tekrar deneyebilirsin."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Günlük Parlio seansın hazır",

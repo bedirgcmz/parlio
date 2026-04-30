@@ -301,6 +301,16 @@
     "send_feedback": "Send Feedback",
     "rate_app": "Rate the App"
   },
+  "notification_permission": {
+    "title": "Want a gentle reminder?",
+    "body": "Parlio can quietly remind you so your daily practice does not slip away. You can change the time anytime in Settings.",
+    "primary": "Turn On Notifications",
+    "secondary": "Not Now",
+    "enabled_title": "Notifications are on",
+    "enabled_body": "All set. You can adjust daily reminders anytime from Settings > Notifications.",
+    "denied_title": "Notifications are off",
+    "denied_body": "No problem. If you change your mind, you can try again from Parlio Settings."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Your daily Parlio session is ready",

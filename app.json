@@ -22,7 +22,9 @@
     },
     "android": {
       "package": "com.parlio.app",
-      "permissions": [],
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ]

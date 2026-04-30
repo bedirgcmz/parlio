@@ -77,6 +77,12 @@ type PlannedNotification = {
   trigger: TriggerInput;
 };
 
+export type NotificationPermissionStatus =
+  | "granted"
+  | "denied"
+  | "undetermined"
+  | "unavailable";
+
 function getCurrentLanguage(preferred?: SupportedLanguage): SupportedLanguage {
   if (preferred) return preferred;
   const lang = i18n.resolvedLanguage ?? i18n.language;
@@ -314,6 +320,21 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function getNotificationPermissionStatus(): Promise<NotificationPermissionStatus> {
+  if (!N) return "unavailable";
+
+  try {
+    const { status } = await N.getPermissionsAsync();
+    if (status === "granted" || status === "denied" || status === "undetermined") {
+      return status;
+    }
+  } catch {
+    return "unavailable";
+  }
+
+  return "undetermined";
 }
 
 export async function cancelAllPracticeNotifications(): Promise<void> {

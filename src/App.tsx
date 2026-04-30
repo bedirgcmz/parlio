@@ -19,6 +19,7 @@ import { establishSessionFromCallbackUrl, isAuthCallbackUrl } from "@/lib/authCa
 // Achievements
 import { AchievementToast } from "@/components/AchievementToast";
 import { NotificationSyncBridge } from "@/components/NotificationSyncBridge";
+import { NotificationPermissionNudge } from "@/components/NotificationPermissionNudge";
 import { useAchievementStore } from "@/store/useAchievementStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -186,6 +187,7 @@ export default function App() {
                 <AppNavigator />
                 <AchievementToast />
                 <NotificationSyncBridge />
+                <NotificationPermissionNudge />
                 <StatusBar style="auto" />
               </OnboardingProvider>
             </ThemeProvider>

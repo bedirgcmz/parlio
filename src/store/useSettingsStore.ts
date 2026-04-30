@@ -2,7 +2,10 @@ import { create } from "zustand";
 import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SupportedLanguage } from "@/types";
-import { syncDailyReminderSchedule } from "@/services/notifications";
+import {
+  getNotificationPermissionStatus,
+  syncDailyReminderSchedule,
+} from "@/services/notifications";
 import { useNetworkStore } from "./useNetworkStore";
 
 interface Settings {
@@ -172,6 +175,16 @@ function areSettingsEqual(left: Settings, right: Settings): boolean {
 }
 
 async function reconcileNotificationState(settings: Settings): Promise<Settings> {
+  if (!settings.notifications) {
+    await syncDailyReminderSchedule({
+      enabled: false,
+      reminderTime: settings.reminderTime,
+      uiLanguage: settings.uiLanguage,
+      dailyGoal: settings.dailyGoal,
+    });
+    return settings;
+  }
+
   const syncOk = await syncDailyReminderSchedule({
     enabled: settings.notifications,
     reminderTime: settings.reminderTime,
@@ -180,6 +193,11 @@ async function reconcileNotificationState(settings: Settings): Promise<Settings>
   });
 
   if (!settings.notifications || syncOk) {
+    return settings;
+  }
+
+  const permissionStatus = await getNotificationPermissionStatus();
+  if (permissionStatus === "denied" || permissionStatus === "undetermined") {
     return settings;
   }
 

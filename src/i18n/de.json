@@ -301,6 +301,16 @@
     "send_feedback": "Feedback senden",
     "rate_app": "App bewerten"
   },
+  "notification_permission": {
+    "title": "Möchtest du eine sanfte Erinnerung?",
+    "body": "Parlio kann dich ruhig daran erinnern, damit deine tägliche Übung nicht untergeht. Die Uhrzeit kannst du jederzeit in den Einstellungen ändern.",
+    "primary": "Benachrichtigungen aktivieren",
+    "secondary": "Jetzt nicht",
+    "enabled_title": "Benachrichtigungen sind aktiv",
+    "enabled_body": "Alles bereit. Du kannst tägliche Erinnerungen jederzeit unter Einstellungen > Benachrichtigungen anpassen.",
+    "denied_title": "Benachrichtigungen sind aus",
+    "denied_body": "Kein Problem. Wenn du deine Meinung änderst, kannst du es in den Parlio-Einstellungen erneut versuchen."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Deine tägliche Parlio-Session ist bereit",

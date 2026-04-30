@@ -301,6 +301,16 @@
     "send_feedback": "Enviar feedback",
     "rate_app": "Avaliar o app"
   },
+  "notification_permission": {
+    "title": "Quer um lembrete tranquilo?",
+    "body": "O Parlio pode lembrar você com calma para não deixar a prática diária passar. Você pode mudar o horário a qualquer momento nas Configurações.",
+    "primary": "Ativar notificações",
+    "secondary": "Agora não",
+    "enabled_title": "Notificações ativadas",
+    "enabled_body": "Tudo certo. Você pode ajustar os lembretes diários quando quiser em Configurações > Notificações.",
+    "denied_title": "Notificações desativadas",
+    "denied_body": "Sem problema. Se mudar de ideia, você pode tentar de novo nas configurações do Parlio."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Sua sessão diária do Parlio está pronta",

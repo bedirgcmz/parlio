@@ -301,6 +301,16 @@
     "send_feedback": "Envoyer un avis",
     "rate_app": "Évaluer l'application"
   },
+  "notification_permission": {
+    "title": "Vous voulez un rappel discret ?",
+    "body": "Parlio peut vous rappeler doucement votre pratique quotidienne, sans vous déranger. Vous pouvez changer l’heure à tout moment dans les réglages.",
+    "primary": "Activer les notifications",
+    "secondary": "Pas maintenant",
+    "enabled_title": "Notifications activées",
+    "enabled_body": "C’est prêt. Vous pouvez ajuster les rappels quotidiens à tout moment dans Réglages > Notifications.",
+    "denied_title": "Notifications désactivées",
+    "denied_body": "Aucun souci. Si vous changez d’avis, vous pouvez réessayer depuis les réglages de Parlio."
+  },
   "notifications_plan": {
     "daily": {
       "title": "Ta session quotidienne Parlio est prête",
