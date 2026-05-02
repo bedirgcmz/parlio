@@ -22,6 +22,7 @@ import { useDialogStore } from "@/store/useDialogStore";
 import { showContentReportAlert } from "@/lib/contentReportAlerts";
 import { buildDialogTurnReportInput } from "@/lib/contentReportSnapshot";
 import { submitContentReport } from "@/services/contentReports";
+import { speak, stopSpeaking } from "@/services/tts";
 import {
   HomeStackParamList,
   SupportedLanguage,
@@ -56,6 +57,10 @@ function getMessage(turn: DialogTurn, lang: SupportedLanguage): string {
 
 function getOptionText(option: DialogTurnOption, lang: SupportedLanguage): string {
   return getLangKey(option, "text", lang, "text_en");
+}
+
+function toggleId(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
 }
 
 // ─── local types ─────────────────────────────────────────────────────────────
@@ -100,6 +105,9 @@ export default function DialogPlayScreen() {
   const [finishing, setFinishing] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [dialogAudioEnabled, setDialogAudioEnabled] = useState(true);
+  const [translatedMessageIds, setTranslatedMessageIds] = useState<string[]>([]);
+  const [translatedOptionIds, setTranslatedOptionIds] = useState<string[]>([]);
 
   const currentTurn = turns[currentTurnIndex] ?? null;
   const isLastTurn  = currentTurnIndex === turns.length - 1;
@@ -112,6 +120,28 @@ export default function DialogPlayScreen() {
   useEffect(() => {
     scrollToBottom();
   }, [history.length, currentTurnIndex, sessionDone]);
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
+
+  const speakDialogText = useCallback(
+    (text: string) => {
+      if (!dialogAudioEnabled || !text.trim()) return;
+      stopSpeaking();
+      speak(text, lang);
+    },
+    [dialogAudioEnabled, lang]
+  );
+
+  const handleToggleDialogAudio = () => {
+    setDialogAudioEnabled((enabled) => {
+      if (enabled) stopSpeaking();
+      return !enabled;
+    });
+  };
 
   const handleOptionPress = async (option: DialogTurnOption) => {
     if (!user || isProcessing || sessionDone) return;
@@ -261,6 +291,24 @@ export default function DialogPlayScreen() {
         </View>
 
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={[
+              styles.headerIconBtn,
+              {
+                backgroundColor: dialogAudioEnabled ? ACCENT + "18" : colors.cardBackground,
+                borderColor: dialogAudioEnabled ? ACCENT + "35" : colors.border,
+              },
+            ]}
+            onPress={handleToggleDialogAudio}
+            activeOpacity={0.75}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Ionicons
+              name={dialogAudioEnabled ? "volume-high-outline" : "volume-mute-outline"}
+              size={17}
+              color={dialogAudioEnabled ? ACCENT : colors.textTertiary}
+            />
+          </TouchableOpacity>
           <ReportIconButton onPress={() => setReportVisible(true)} size={32} iconSize={17} />
           <View style={[styles.turnPill, { backgroundColor: ACCENT + "22" }]}>
             <Text style={[styles.turnPillText, { color: ACCENT }]}>
@@ -295,13 +343,34 @@ export default function DialogPlayScreen() {
           <React.Fragment key={idx}>
             {/* Character message — LEFT */}
             <CharacterBubble
-              text={getMessage(entry.turn, lang)}
+              text={
+                translatedMessageIds.includes(entry.turn.id)
+                  ? getMessage(entry.turn, uiLanguage)
+                  : getMessage(entry.turn, lang)
+              }
               name={activeScenario.character_name}
               colors={colors}
+              audioEnabled={dialogAudioEnabled}
+              translated={translatedMessageIds.includes(entry.turn.id)}
+              onSpeak={() => speakDialogText(getMessage(entry.turn, lang))}
+              onToggleTranslate={() =>
+                setTranslatedMessageIds((prev) => toggleId(prev, entry.turn.id))
+              }
             />
             {/* User's correct answer — RIGHT (sent bubble) */}
             <UserSentBubble
-              text={getOptionText(entry.chosenOption, lang)}
+              text={
+                translatedOptionIds.includes(entry.chosenOption.id)
+                  ? getOptionText(entry.chosenOption, uiLanguage)
+                  : getOptionText(entry.chosenOption, lang)
+              }
+              colors={colors}
+              audioEnabled={dialogAudioEnabled}
+              translated={translatedOptionIds.includes(entry.chosenOption.id)}
+              onSpeak={() => speakDialogText(getOptionText(entry.chosenOption, lang))}
+              onToggleTranslate={() =>
+                setTranslatedOptionIds((prev) => toggleId(prev, entry.chosenOption.id))
+              }
             />
           </React.Fragment>
         ))}
@@ -310,9 +379,19 @@ export default function DialogPlayScreen() {
         {!sessionDone && currentTurn && (
           <>
             <CharacterBubble
-              text={getMessage(currentTurn, lang)}
+              text={
+                translatedMessageIds.includes(currentTurn.id)
+                  ? getMessage(currentTurn, uiLanguage)
+                  : getMessage(currentTurn, lang)
+              }
               name={activeScenario.character_name}
               colors={colors}
+              audioEnabled={dialogAudioEnabled}
+              translated={translatedMessageIds.includes(currentTurn.id)}
+              onSpeak={() => speakDialogText(getMessage(currentTurn, lang))}
+              onToggleTranslate={() =>
+                setTranslatedMessageIds((prev) => toggleId(prev, currentTurn.id))
+              }
             />
 
             {/* Options */}
@@ -325,51 +404,65 @@ export default function DialogPlayScreen() {
                 const isSelected  = pendingOptionId === option.id;
                 const isWrong     = isSelected && !option.is_correct;
                 const isCorrectSel = isSelected && option.is_correct;
+                const isTranslated = translatedOptionIds.includes(option.id);
+                const optionText = isTranslated
+                  ? getOptionText(option, uiLanguage)
+                  : getOptionText(option, lang);
 
                 return (
-                  <TouchableOpacity
-                    key={option.id}
-                    style={[
-                      styles.optionBubble,
-                      {
-                        backgroundColor: isCorrectSel
-                          ? CORRECT_COLOR + "22"
-                          : isWrong
-                          ? WRONG_COLOR + "22"
-                          : colors.cardBackground,
-                        borderColor: isCorrectSel
-                          ? CORRECT_COLOR
-                          : isWrong
-                          ? WRONG_COLOR
-                          : colors.border,
-                      },
-                    ]}
-                    onPress={() => handleOptionPress(option)}
-                    activeOpacity={0.75}
-                    disabled={isProcessing}
-                  >
-                    <Text
+                  <View key={option.id} style={styles.optionRow}>
+                    <BubbleActions
+                      colors={colors}
+                      audioEnabled={dialogAudioEnabled}
+                      translated={isTranslated}
+                      onSpeak={() => speakDialogText(getOptionText(option, lang))}
+                      onToggleTranslate={() =>
+                        setTranslatedOptionIds((prev) => toggleId(prev, option.id))
+                      }
+                    />
+                    <TouchableOpacity
                       style={[
-                        styles.optionText,
+                        styles.optionBubble,
                         {
-                          color: isCorrectSel
+                          backgroundColor: isCorrectSel
+                            ? CORRECT_COLOR + "22"
+                            : isWrong
+                            ? WRONG_COLOR + "22"
+                            : colors.cardBackground,
+                          borderColor: isCorrectSel
                             ? CORRECT_COLOR
                             : isWrong
                             ? WRONG_COLOR
-                            : colors.text,
+                            : colors.border,
                         },
                       ]}
+                      onPress={() => handleOptionPress(option)}
+                      activeOpacity={0.75}
+                      disabled={isProcessing}
                     >
-                      {getOptionText(option, lang)}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: isCorrectSel
+                              ? CORRECT_COLOR
+                              : isWrong
+                              ? WRONG_COLOR
+                              : colors.text,
+                          },
+                        ]}
+                      >
+                        {optionText}
+                      </Text>
 
-                    {isCorrectSel && (
-                      <Ionicons name="checkmark-circle" size={18} color={CORRECT_COLOR} />
-                    )}
-                    {isWrong && (
-                      <Ionicons name="close-circle" size={18} color={WRONG_COLOR} />
-                    )}
-                  </TouchableOpacity>
+                      {isCorrectSel && (
+                        <Ionicons name="checkmark-circle" size={18} color={CORRECT_COLOR} />
+                      )}
+                      {isWrong && (
+                        <Ionicons name="close-circle" size={18} color={WRONG_COLOR} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 );
               })}
             </View>
@@ -413,14 +506,65 @@ export default function DialogPlayScreen() {
 
 // ─── sub-components ──────────────────────────────────────────────────────────
 
+function BubbleActions({
+  colors,
+  audioEnabled,
+  translated,
+  onSpeak,
+  onToggleTranslate,
+}: {
+  colors: any;
+  audioEnabled: boolean;
+  translated: boolean;
+  onSpeak: () => void;
+  onToggleTranslate: () => void;
+}) {
+  return (
+    <View style={styles.bubbleActions}>
+      <TouchableOpacity
+        style={styles.bubbleActionBtn}
+        onPress={onSpeak}
+        activeOpacity={0.7}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 4 }}
+      >
+        <Ionicons
+          name={audioEnabled ? "volume-high-outline" : "volume-mute-outline"}
+          size={16}
+          color={audioEnabled ? colors.textTertiary : colors.border}
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.bubbleActionBtn}
+        onPress={onToggleTranslate}
+        activeOpacity={0.7}
+        hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
+      >
+        <Ionicons
+          name="language-outline"
+          size={16}
+          color={translated ? ACCENT : colors.textTertiary}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function CharacterBubble({
   text,
   name,
   colors,
+  audioEnabled,
+  translated,
+  onSpeak,
+  onToggleTranslate,
 }: {
   text: string;
   name: string;
   colors: any;
+  audioEnabled: boolean;
+  translated: boolean;
+  onSpeak: () => void;
+  onToggleTranslate: () => void;
 }) {
   return (
     <View style={styles.characterRow}>
@@ -429,24 +573,56 @@ function CharacterBubble({
       </View>
       <View style={styles.characterBubbleWrap}>
         <Text style={[styles.speakerName, { color: colors.textSecondary }]}>{name}</Text>
-        <View
-          style={[
-            styles.characterBubble,
-            { backgroundColor: colors.cardBackground, borderColor: colors.border },
-          ]}
-        >
-          <Text style={[styles.characterText, { color: colors.text }]}>{text}</Text>
+        <View style={styles.characterBubbleLine}>
+          <View
+            style={[
+              styles.characterBubble,
+              { backgroundColor: colors.cardBackground, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.characterText, { color: colors.text }]}>{text}</Text>
+          </View>
+          <BubbleActions
+            colors={colors}
+            audioEnabled={audioEnabled}
+            translated={translated}
+            onSpeak={onSpeak}
+            onToggleTranslate={onToggleTranslate}
+          />
         </View>
       </View>
     </View>
   );
 }
 
-function UserSentBubble({ text }: { text: string }) {
+function UserSentBubble({
+  text,
+  colors,
+  audioEnabled,
+  translated,
+  onSpeak,
+  onToggleTranslate,
+}: {
+  text: string;
+  colors: any;
+  audioEnabled: boolean;
+  translated: boolean;
+  onSpeak: () => void;
+  onToggleTranslate: () => void;
+}) {
   return (
     <View style={styles.userRow}>
-      <View style={[styles.userBubble, { backgroundColor: ACCENT }]}>
-        <Text style={styles.userBubbleText}>{text}</Text>
+      <View style={styles.userBubbleLine}>
+        <BubbleActions
+          colors={colors}
+          audioEnabled={audioEnabled}
+          translated={translated}
+          onSpeak={onSpeak}
+          onToggleTranslate={onToggleTranslate}
+        />
+        <View style={[styles.userBubble, { backgroundColor: ACCENT }]}>
+          <Text style={styles.userBubbleText}>{text}</Text>
+        </View>
       </View>
     </View>
   );
@@ -469,6 +645,7 @@ const styles = StyleSheet.create({
   headerTitle:         { fontSize: 15, fontWeight: "700", lineHeight: 20 },
   headerSub:           { fontSize: 12, lineHeight: 16 },
   headerRight:         { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerIconBtn:       { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   turnPill:            { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   turnPillText:        { fontSize: 13, fontWeight: "700" },
 
@@ -485,18 +662,23 @@ const styles = StyleSheet.create({
   avatarCircle:        { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
   characterBubbleWrap: { flex: 1 },
   speakerName:         { fontSize: 11, fontWeight: "600", marginBottom: 3, marginLeft: 2 },
-  characterBubble:     { borderRadius: 18, borderTopLeftRadius: 4, borderWidth: 1, padding: 13, alignSelf: "flex-start", maxWidth: "90%" },
+  characterBubbleLine: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  characterBubble:     { borderRadius: 18, borderTopLeftRadius: 4, borderWidth: 1, padding: 13, alignSelf: "flex-start", maxWidth: "80%" },
   characterText:       { fontSize: 15, lineHeight: 22 },
+  bubbleActions:       { flexDirection: "row", alignItems: "center", gap: 1, paddingTop: 2 },
+  bubbleActionBtn:     { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
 
   // User bubble (right — sent)
   userRow:             { alignItems: "flex-end", marginBottom: 16 },
+  userBubbleLine:      { flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: 6, maxWidth: "96%" },
   userBubble:          { borderRadius: 18, borderTopRightRadius: 4, paddingVertical: 11, paddingHorizontal: 16, maxWidth: "80%" },
   userBubbleText:      { color: "#fff", fontSize: 14, lineHeight: 20 },
 
   // Options
   optionsWrap:         { alignItems: "flex-end", gap: 8, marginBottom: 8 },
   chooseLabel:         { fontSize: 10, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 2 },
-  optionBubble:        { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderRadius: 18, borderTopRightRadius: 4, borderWidth: 1.5, paddingVertical: 11, paddingHorizontal: 15, width: "88%" },
+  optionRow:           { flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: 6, width: "100%" },
+  optionBubble:        { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderRadius: 18, borderTopRightRadius: 4, borderWidth: 1.5, paddingVertical: 11, paddingHorizontal: 15, width: "78%" },
   optionText:          { fontSize: 14, lineHeight: 20, flex: 1 },
 
   // Bottom
